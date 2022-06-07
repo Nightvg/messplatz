@@ -65,7 +65,7 @@ if __name__ == '__main__':
     baud = sys.argv[1] if len(sys.argv) == 2 else 500000
     conn = Conn(port=port, baud=baud, recv=send_q)
     outputQueue = conn.getQueue()
-    #conn.run()
+    conn.run()
 
     outputThread = threading.Thread(target=outputFunc)
     inputThread = threading.Thread(target=inputFunc)

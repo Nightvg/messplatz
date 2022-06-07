@@ -4,11 +4,9 @@ import serial
 import threading
 from queue import Queue
 
-class Conn(threading.Thread):
+class Conn():
     def __init__(self, *args, **kwargs) -> None:
         self.__endflag = False
-        threading.Thread.__init__(self, args=(), kwargs=None)
-        self.daemon = True
         self.__send = Queue()
         try:
             self.__port = kwargs['port'] if 'port' in kwargs.keys() else args[0]
@@ -28,10 +26,15 @@ class Conn(threading.Thread):
             self.__send.put('[CONN] Connection error')
 
     def __del__(self) -> None:
-        self.__serial.close()
+        self.close()
 
     def close(self) -> None:
-        self.serial.close()
+        self.__serial.close()
+        try:
+            self.__thread.join()
+        except:
+            pass
+
 
     def open(self) -> bool:
         if self.__endflag:
@@ -45,13 +48,12 @@ class Conn(threading.Thread):
         return self.__send
 
     def __write(self, data: bytes) -> None:
-        self.serial.write(data)
+        self.__serial.write(data)
                 
     def __read(self) -> bytes:
         return self.__serial.read()
 
-    def run(self) -> None:
-        print('[CONN] Start running..')
+    def __run(self):
         while not self.__endflag:
             try:
                 r = self.__read()
@@ -68,5 +70,11 @@ class Conn(threading.Thread):
             
             except queue.Empty():
                 pass
+
+    def run(self) -> threading.Thread:
+        self.__send.put('[CONN] Start running..')
+        self.__thread = threading.Thread(target=self.__run(), daemon=True)
+        return self.__thread
+        
 
 
