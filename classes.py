@@ -1,4 +1,3 @@
-from msilib.schema import Error
 import queue
 import serial
 import threading
@@ -18,7 +17,8 @@ class Conn():
             return
         try:
             self.__serial = serial.Serial(port=self.__port, baudrate=self.__baud)
-            self.__serial.close()
+            if self.__serial.is_open:
+                self.__serial.close()
             self.__serial.open()
             self.__send.put('[CONN] Connection successfuly established')
         except Exception as e:
@@ -39,7 +39,8 @@ class Conn():
     def open(self) -> bool:
         if self.__endflag:
             self.__endflag = False
-            self.__serial.open()
+            if not self.__serial.is_open:
+                self.__serial.open()
             return True
         else:
             return False

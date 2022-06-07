@@ -15,7 +15,6 @@ lowerwin = stdscr.subwin(10,0)
 def outputFunc():
     upperwin.scrollok(True)
     while True:
-        #upperwin.clear()
         try:
             inp = commandQueue.get(timeout=0.1)
             outputQueue.put(inp)
@@ -25,12 +24,10 @@ def outputFunc():
                 conn.open()
             if inp == 'exit':
                 return          
-            #upperwin.addstr(inp)
-            #upperwin.addch('\n') 
         except queue.Empty:
             pass
-        except curses.error:
-            pass
+        except curses.error as e:
+            outputQueue.put(e)
         try:
             out = outputQueue.get(timeout=0.1)
             upperwin.addstr(str(out))
@@ -45,16 +42,13 @@ def outputFunc():
 def inputFunc():
      while True:
         global buffer
-
         lowerwin.addstr("->")
-
         command = lowerwin.getstr()
 
         if command:
             command = command.decode("utf-8")
             commandQueue.put(command)
             lowerwin.clear()
-
             lowerwin.refresh()
             if command == 'exit':
                 return
@@ -65,7 +59,7 @@ if __name__ == '__main__':
     baud = sys.argv[1] if len(sys.argv) == 2 else 500000
     conn = Conn(port=port, baud=baud, recv=send_q)
     outputQueue = conn.getQueue()
-    conn.run()
+    t = conn.run()
 
     outputThread = threading.Thread(target=outputFunc)
     inputThread = threading.Thread(target=inputFunc)
@@ -73,6 +67,7 @@ if __name__ == '__main__':
     inputThread.start()
     outputThread.join()
     inputThread.join()
+    t.join()
 
     stdscr.keypad(False)
     curses.endwin()
