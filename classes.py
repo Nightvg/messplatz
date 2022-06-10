@@ -6,6 +6,7 @@ from queue import Queue
 class Conn():
     def __init__(self, *args, **kwargs) -> None:
         self.__endflag = False
+        self.__thread = None
         self.__send = Queue()
         try:
             self.__port = kwargs['port'] if 'port' in kwargs.keys() else args[0]
@@ -73,9 +74,11 @@ class Conn():
                 pass
 
     def run(self) -> threading.Thread:
-        self.__send.put('[CONN] Start running..')
-        self.__thread = threading.Thread(target=self.__run(), daemon=True)
-        return self.__thread
-        
-
-
+        try:
+            if not (self.__thread is None) and not self.__thread.is_alive():
+                self.__send.put('[CONN] Start running..')
+                self.__thread = threading.Thread(target=self.__run(), daemon=True)
+        except Exception as e:
+            self.__send.put(e)
+        finally:
+            return self.__thread

@@ -4,6 +4,7 @@ from classes import *
 
 commandQueue = Queue()
 outputQueue = Queue()
+send_q = Queue()
 
 stdscr = curses.initscr()
 stdscr.keypad(True)
@@ -23,7 +24,9 @@ def outputFunc():
             if inp == 'open':
                 conn.open()
             if inp == 'exit':
-                return          
+                return     
+            if inp.split(' ')[0] == 'write':
+                send_q.put(inp.split(' ')[1].encode())
         except queue.Empty:
             pass
         except curses.error as e:
@@ -54,7 +57,6 @@ def inputFunc():
                 return
 
 if __name__ == '__main__':
-    send_q = Queue()
     port = sys.argv[0] if len(sys.argv) == 2 else 'COM3'
     baud = sys.argv[1] if len(sys.argv) == 2 else 500000
     conn = Conn(port=port, baud=baud, recv=send_q)
