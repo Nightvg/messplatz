@@ -1,10 +1,10 @@
 import sys
 import curses
+import threading
 from classes import *
 
 commandQueue = Queue()
 outputQueue = Queue()
-send_q = Queue()
 
 stdscr = curses.initscr()
 stdscr.keypad(True)
@@ -18,7 +18,8 @@ def outputFunc():
     while True:
         try:
             inp = commandQueue.get(timeout=0.1)
-            outputQueue.put(inp)
+            upperwin.addstr(str(inp))
+            upperwin.addch('\n')
             if inp == 'close':
                 conn.close()
             if inp == 'open':
@@ -26,19 +27,27 @@ def outputFunc():
             if inp == 'exit':
                 return     
             if inp.split(' ')[0] == 'write':
-                send_q.put(inp.split(' ')[1].encode())
+                conn.write(inp.split(' ')[1].encode())
         except queue.Empty:
             pass
         except curses.error as e:
-            outputQueue.put(e)
+            print(e)
+        try:
+            if conn.is_open: 
+                conn.read()
+        except Exception as e:
+            upperwin.addstr(str(e))
+            upperwin.addch('\n')
         try:
             out = outputQueue.get(timeout=0.1)
+            if '[DATA]' in out:
+                g.addData(out.split('#')[1].split(','))
             upperwin.addstr(str(out))
             upperwin.addch('\n')
         except queue.Empty:
             pass
         except curses.error:
-            pass
+            print(e)
         upperwin.refresh()
         
 
@@ -59,9 +68,9 @@ def inputFunc():
 if __name__ == '__main__':
     port = sys.argv[0] if len(sys.argv) == 2 else 'COM3'
     baud = sys.argv[1] if len(sys.argv) == 2 else 512000
-    conn = Conn(port=port, baud=baud, recv=send_q)
+    conn = Conn(port=port, baud=baud)
     outputQueue = conn.getQueue()
-    t = conn.run()
+    g = Graph(4, outputQueue, [])
 
     outputThread = threading.Thread(target=outputFunc)
     inputThread = threading.Thread(target=inputFunc)
@@ -69,7 +78,6 @@ if __name__ == '__main__':
     inputThread.start()
     outputThread.join()
     inputThread.join()
-    t.join()
 
     stdscr.keypad(False)
     curses.endwin()
