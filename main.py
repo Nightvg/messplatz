@@ -58,7 +58,7 @@ def inputFunc():
 
 if __name__ == '__main__':
     port = sys.argv[0] if len(sys.argv) == 2 else 'COM3'
-    baud = sys.argv[1] if len(sys.argv) == 2 else 500000
+    baud = sys.argv[1] if len(sys.argv) == 2 else 512000
     conn = Conn(port=port, baud=baud, recv=send_q)
     outputQueue = conn.getQueue()
     t = conn.run()
