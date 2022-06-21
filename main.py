@@ -15,6 +15,7 @@ lowerwin = stdscr.subwin(10,0)
 
 def outputFunc():
     upperwin.scrollok(True)
+    g = Graph(4, outputQueue)
     while True:
         try:
             inp = commandQueue.get(timeout=0.1)
@@ -41,11 +42,12 @@ def outputFunc():
         try:
             out = outputQueue.get(timeout=0.1)
             if '[DATA]' in out:
-                g.addData(out.split('#')[1].split(','))
+                g.addData([float(x) for x in out.split('#')[1].split(',')])
             upperwin.addstr(str(out))
             upperwin.addch('\n')
         except queue.Empty:
             pass
+            #g.addData(4*[0.0])
         except curses.error:
             print(e)
         upperwin.refresh()
@@ -70,7 +72,6 @@ if __name__ == '__main__':
     baud = sys.argv[1] if len(sys.argv) == 2 else 512000
     conn = Conn(port=port, baud=baud)
     outputQueue = conn.getQueue()
-    g = Graph(4, outputQueue, [])
 
     outputThread = threading.Thread(target=outputFunc)
     inputThread = threading.Thread(target=inputFunc)
