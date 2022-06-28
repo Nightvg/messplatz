@@ -1,85 +1,48 @@
+from multiprocessing import Process
+from threading import Thread
 import sys
-import curses
-import threading
+import socket
+import multiprocessing as mp
 from classes import *
 
-commandQueue = Queue()
-outputQueue = Queue()
-
-stdscr = curses.initscr()
-stdscr.keypad(True)
-curses.curs_set(False)
-
-upperwin = stdscr.subwin(10, 80, 0, 0)
-lowerwin = stdscr.subwin(10,0)
-
-def outputFunc():
-    upperwin.scrollok(True)
-    g = Graph(4, outputQueue)
+def view():
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind(('', 2000))
+    g = Graph(4)
     while True:
         try:
-            inp = commandQueue.get(timeout=0.1)
-            upperwin.addstr(str(inp))
-            upperwin.addch('\n')
-            if inp == 'close':
-                conn.close()
-            if inp == 'open':
-                conn.open()
-            if inp == 'exit':
-                return     
-            if inp.split(' ')[0] == 'write':
-                conn.write(inp.split(' ')[1].encode())
-        except queue.Empty:
-            pass
-        except curses.error as e:
-            print(e)
-        try:
-            if conn.is_open: 
-                conn.read()
-        except Exception as e:
-            upperwin.addstr(str(e))
-            upperwin.addch('\n')
-        try:
-            out = outputQueue.get(timeout=0.1)
-            if '[DATA]' in out:
-                g.addData([float(x) for x in out.split('#')[1].split(',')])
-            upperwin.addstr(str(out))
-            upperwin.addch('\n')
-        except queue.Empty:
-            pass
-            #g.addData(4*[0.0])
-        except curses.error:
-            print(e)
-        upperwin.refresh()
-        
-
-def inputFunc():
-     while True:
-        global buffer
-        lowerwin.addstr("->")
-        command = lowerwin.getstr()
-
-        if command:
-            command = command.decode("utf-8")
-            commandQueue.put(command)
-            lowerwin.clear()
-            lowerwin.refresh()
-            if command == 'exit':
+            message = server.recv(4096).decode('utf-8')
+            g.addData([float(x) for x in message[1:].split(',')])
+            if 'exit' in message:
                 return
+            print(message)
+        except Exception as e:
+            print('[view] ' + str(e))
+
+def reader(print_address, port, baud):
+    try:
+        conn = Conn(port=port, baud=baud)
+        #print_address = ('127.0.0.1', 2000)   
+        print_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    except Exception as e:
+        print(e)
+    while True:
+        try:
+            if conn.is_open:
+                for s in conn.read().split('\n\r'):
+                    if s != '':
+                        print_socket.sendto(s.encode('utf-8'), print_address)
+        except Exception as e:
+            print('[inputhandler-map]' + str(e))
 
 if __name__ == '__main__':
     port = sys.argv[0] if len(sys.argv) == 2 else 'COM3'
-    baud = sys.argv[1] if len(sys.argv) == 2 else 512000
-    conn = Conn(port=port, baud=baud)
-    outputQueue = conn.getQueue()
+    baud = sys.argv[1] if len(sys.argv) == 2 else 500000
 
-    outputThread = threading.Thread(target=outputFunc)
-    inputThread = threading.Thread(target=inputFunc)
-    outputThread.start()
-    inputThread.start()
-    outputThread.join()
-    inputThread.join()
+    inp = Process(target=reader, args=(('127.0.0.1', 2000), port, baud))
+    outp = Process(target=view)
 
-    stdscr.keypad(False)
-    curses.endwin()
-    
+    inp.start()
+    outp.start()
+    inp.join()
+    outp.join()
