@@ -1,7 +1,12 @@
 hterm085-windows
 hterm085-windows.zip
 Code von Anna
-test*
+*.txt
+*test*
+*tmp*
+temp*
 Code von Benjamin
 *.md
 node_modules/
+*depricated*
+*dev*

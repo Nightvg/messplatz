@@ -10,7 +10,6 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            //"args": ["--limit", "5", "--port", "COM3", "--baud", "500000"],
             "justMyCode": true
         }
     ]
