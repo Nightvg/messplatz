@@ -10,3 +10,4 @@ Code von Benjamin
 node_modules/
 *depricated*
 *dev*
+__pycache__
