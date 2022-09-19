@@ -17,6 +17,7 @@ wss.on('connection', function(socket) {
   // When a socket closes, or disconnects, remove it from the array.
   socket.on('close', function() {
     sockets = sockets.filter(s => s !== socket);
+    console.log('Client disconnected');
   });
 });
 
