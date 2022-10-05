@@ -1,25 +1,28 @@
-import numpy as np
+#Standardlib
+import threading
+from time import sleep
 import socket
 import pickle
 import json
-from websocket import create_connection
-import threading
-from time import sleep
 from copy import deepcopy
-from datetime import datetime
+#Extern Packages
+import numpy as np
+from websocket import create_connection, WebSocket
+
 
 def packer_thread(port=3001, ws_address="127.0.0.1", ws_port=3000, dps=30):
     """
     Initializes data deploying unit. Used as virtual transport layer between view (node server) and reader.
     Needs to be started before reader and after the view server.
+
     Arguments:
-        port        : Port to listen to, has to be the same port the reader will send data to   | int
-        ws_address  : Address of websocket server (view), usually running on the same machine   | str
-        ws_port     : Port of the websocket server (view), usually 3000. Unless not changend    | int
+        port        : Port to listen to, has to be the same port the reader will send data to
+        ws_address  : Address of websocket server (view), usually running on the same machine
+        ws_port     : Port of the websocket server (view), usually 3000. Unless not changend
                       inside the node.js server leave this to default
-        dps         : Datapackages per second                                                   | int
+        dps         : Datapackages per second
     Returns:
-        None
+        
     """
 
     bufflock = threading.Lock()
@@ -39,40 +42,49 @@ def packer_thread(port=3001, ws_address="127.0.0.1", ws_port=3000, dps=30):
     packer.join()
     sender.join()
 
-def sender_init(lock : threading.Lock, wss, dps=30):
+def sender_init(lock : threading.Lock, wss : WebSocket, dps=30):
     """
     Initializes sender unit for data deployment to wss-server. Synchronizes input data.
+
     Arguments:
-        ws_address  : Address of websocket server (view), usually running on the same machine   | str
-        ws_port     : Port of the websocket server (view), usually 3000. Unless not changend    | int
+        ws_address  : Address of websocket server (view), usually running on the same machine
+        ws_port     : Port of the websocket server (view), usually 3000. Unless not changend
                       inside the node.js server leave this to default
     Returns:
-        None
+        
     """
     dps = 1/dps
     while True:
         lock.acquire()
         tmp_buff = deepcopy(threadbuff)
         for key in threadbuff.keys():
-            if threadbuff[key].ndim > 1:
-                threadbuff[key] = threadbuff[key][-1]
+            if threadbuff[key]['Data'].ndim > 1:
+                threadbuff[key]['Data'] = threadbuff[key]['Data'][-1]
         lock.release()
-        for device, data in tmp_buff.items():
-            if data.shape[0] > 5:
-                wss.send(json.dumps({'data':np.mean(data[:-1], axis=0).tolist(), 'device': device}))
+        for device, dict_data in tmp_buff.items():
+            res = {'data':None,'device':device}
+            if not dict_data['Known']:
+                res['names'] = dict_data['Keys']
+                lock.acquire()
+                threadbuff[device]['Known'] = True
+                lock.release()
+            if dict_data['Data'].ndim > 1:
+                res['data'] = np.mean(dict_data['Data'][:-1], axis=0).tolist()
                 #wss.send(json.dumps({'data':data[-1].tolist(), 'device': device}))
                 #print(data[:-1])
-            elif data.ndim == 1:
-                wss.send(json.dumps({'data': data.tolist(), 'device': device}))
+            else:
+                res['data'] = dict_data['Data'].tolist()
+            wss.send(json.dumps(res))
         sleep(dps)
 
 def packer_init(lock : threading.Lock, port=3001):
     """
     Initializes data buffer unit. Places data inside a buffer for boundled access from sender thread.
+
     Arguments:
-        port        : UPD receiver port, listens for data   | int
+        port        : UPD receiver port, listens for data
     Returns:
-        None
+        
     """
     reader_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     reader_sock.bind(('',port))
@@ -83,18 +95,19 @@ def packer_init(lock : threading.Lock, port=3001):
             data, address = reader_sock.recvfrom(16384)
             if not address in addr.keys():
                 lock.acquire()
-                tmp = data.decode('utf-8')
-                addr[address] = tmp[:-1]
-                threadbuff[addr[address]] = np.zeros((int(tmp[-1]),)).astype(np.float32)
+                tmp = pickle.loads(data)
+                tmp_device = tmp.pop('Device')
+                addr[address] = tmp_device
+                threadbuff[tmp_device] = {'Data':np.zeros((len(tmp),)), 'Keys':list(tmp.keys()), 'Known':False}
                 lock.release()
                 #reader_sock.send(b'done')
-                print('[PACKER] Registered ' + tmp[:-1])
+                print('[PACKER] Registered ' + tmp_device)
             else:
                 lock.acquire()
-                if pickle.loads(data) != threadbuff[addr[address]][-1]:
-                    threadbuff[addr[address]] = np.vstack((threadbuff[addr[address]],pickle.loads(data))).astype(np.float32)
+                tmp_data = pickle.loads(data)
+                threadbuff[addr[address]]['Data'] = np.vstack((threadbuff[addr[address]]['Data'],tmp_data)).astype(tmp_data.dtype)
                 lock.release()
         except Exception as e:
-            print('[PACKER] ' + str(e))
+            print('[PACKER][ERROR] ' + str(e))
 
 #main()

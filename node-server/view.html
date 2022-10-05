@@ -10,21 +10,23 @@
               stroke: #000;
               stroke-width: 1.5px;
             }
+            .grid-container {
+                display: grid;
+                grid-template-columns: auto auto auto;
+                padding: 10px;
+            }
+            .grid-item {
+                padding: 20px;
+                font-size: 30px;
+                text-align: center;
+            }
             
         </style>
-        <div class="graph">
-            <div class="view">
-                <svg width="960" height="200"></svg>
+        <div class="graph grid-container">
+            <div class="view grid-item">
+                <svg class="data" width="960" height="200"></svg>
             </div>
-            <div class="controle">
-                <div>
-                    <p>Max: 5000</p>
-                    <input type="range" min=0 max=5000 step=200 value=5000 name="Max: " disabled="true">
-                </div>
-                <div>
-                    <p>Min: 0</p>
-                    <input type="range" min=0 max=5000 step=200 value=0 name="Min: " disabled="true">
-                </div>
+            <div class="controle grid-item">
             </div>
         </div>
         <script src="https://d3js.org/d3.v7.min.js"></script>

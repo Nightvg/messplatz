@@ -1,7 +1,9 @@
-from PyQt5.QtGui import QTabletEvent
-from PyQt5.QtWidgets import QWidget, QApplication
+#Standardlib
 import socket
 import pickle
+#Extern Packages
+from PyQt5.QtGui import QTabletEvent
+from PyQt5.QtWidgets import QWidget, QApplication
 import numpy as np
 
 class TabletSampleWindow(QWidget):

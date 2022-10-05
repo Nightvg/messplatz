@@ -22,7 +22,7 @@ wss.on('connection', function(socket) {
 });
 
 var server = http.createServer(function (request, response) {
-  fs.readFile('./' + request.url, function(err, data) {
+  fs.readFile(__dirname + '/' + request.url, function(err, data) {
     if (!err) {
       var dotoffset = request.url.lastIndexOf('.');
       var mimetype = dotoffset == -1

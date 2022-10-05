@@ -10,4 +10,7 @@ Code von Benjamin
 node_modules/
 *depricated*
 *dev*
-__pycache__
+__pycache__/*
+*.svg
+*.png
+stackable.py
