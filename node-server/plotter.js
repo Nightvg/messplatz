@@ -9,11 +9,12 @@ var resetXAxis = () => {
         d3.select(elem).transition(500).call(d3.axisBottom(x));
     });
 };
+var clamp = (num, min, max) => {return Math.min(Math.max(num, min),max);};
 var idleTimeout;
 function idled() { idleTimeout = null; };
 
 var init_graph = null;
-var margin = {top: 20, right: 20, bottom: 20, left: 40},
+var margin = {top: 20, right: 100, bottom: 20, left: 50},
     height = document.querySelector('svg.data').height.baseVal.value,
     width = document.querySelector('svg.data').width.baseVal.value,
     _width = 400,
@@ -29,32 +30,28 @@ var margin = {top: 20, right: 20, bottom: 20, left: 40},
         .on("end", brushed);    
 
 var x = d3.scaleLinear()
-    .domain([0, n + 100])
-    .range([0, width]),
+    .domain([0, n])
+    .range([0, width - margin.right]),
     x_global = d3.scaleLinear()
-    .domain([0, n + 100])
-    .range([0, width]),
-    _x = d3.scaleLinear()
-    .domain([0, 900])
-    .range([0, _width]);
+    .domain([0, n])
+    .range([0, width - margin.right]);
 
 var y = d3.scaleLinear()
     .domain([0, 5000])
-    .range([height, 0]);
+    .range([height - margin.top, margin.bottom]);
 
 function brushed({selection}) {
     if (selection) {
         let index = Array.from(document.querySelectorAll('.brush')).findIndex(node => node.isEqualNode(this));
         var [[x0, y0], [x1, y1]] = selection;
-        x0 = Math.floor(x0);
-        x1 = Math.floor(x1);
-        y0 = Math.floor(y0);
-        y1 = Math.floor(y1);
+        x0 = clamp(Math.floor(x0),0,n);
+        x1 = clamp(Math.floor(x1),0,n);
+        y0 = clamp(Math.floor(y0),0,height);
+        y1 = clamp(Math.floor(y1),0,height);
+        let _x = d3.scaleLinear()
+            .domain([x0, x1])
+            .range([0, _width - margin.right]);
         t_datas[index] = datas[index].slice(x0, x1);
-        _x.domain([x0,x1])
-        let _y = d3.scaleLinear()
-            .domain([y0-100, y1+100])
-            .range([height, 0]);
         let div = document.querySelectorAll('div.controle')[index];
         if(div.children.length == 0) {
             let svg = d3.select(div).append("svg")
@@ -74,21 +71,20 @@ function brushed({selection}) {
             g1.append("g")
                 .attr("class", "axis axis--y");
         
-            let line1 = g1.append("g")
+            let line = g1.append("g")
                 .attr("clip-path", "url(#clip)");
-            line1.append("path")
+            line.append("path")
                 .data([t_datas[index]])
                 .attr("class", "line");
-            console.log('test')    
         } 
         d3.select(div.querySelector("svg")).style("visibility", "");
         d3.select(div.querySelector('.axis--x')).call(d3.axisBottom(_x));
         d3.select(div.querySelector('.axis--y')).call(d3.axisLeft(yscales[index]));    
-        d3.select(div.querySelector('.line')).attr('d', d3.line()
+        d3.select(div.querySelector('.line'))
+            .attr("d", d3.line()
             .x(function(d, i) { return _x(i); })
-            .y(function(d, i) { return _y(d); })
+            .y(function(d, i) { return yscales[index](d); })
         );
-        
     } 
     else {
        // d3.select(this.closest('div.graph').closest('.partly')).style("visibility","hidden"); 
@@ -115,9 +111,9 @@ window.onload = function(){
         svg.on("dblclick",function(){
             this.closest('div.graph').querySelector('div.controle>svg').style.visibility = 'hidden';
         });
-        svg.attr("width") - margin.left - margin.right,
-        svg.attr("height") - margin.top - margin.bottom,
-        g = svg.append("g").attr("transform", "translate(" + margin.left + "," + 0 + ")");
+        // svg.attr("width") - margin.left - margin.right,
+        // svg.attr("height") - margin.top - margin.bottom,
+        g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
         g.append("defs").append("clipPath")
             .attr("id", "clip")
             .append("rect")
@@ -185,12 +181,11 @@ function updateGraphs() {
 }
 
 function tick(index, data) {
-    let line = d3.line()
-        .x(function(d, i) { return x(i); })
-        .y(function(d, i) { return yscales[index](d); });
     datas[index].push(data);
     d3.select(paths[index])
-        .attr("d", line)
+        .attr("d", d3.line()
+            .x(function(d, i) { return x(i); })
+            .y(function(d, i) { return yscales[index](d); }))
         .attr("transform", null)
         .transition()
         .attr("transform", "translate("+x_global(-1)+",0)");
