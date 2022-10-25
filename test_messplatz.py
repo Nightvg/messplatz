@@ -5,13 +5,14 @@ import serial
 import pytest
 from sys import platform
 
-def test_reader():
+def test_reader_basic():
     a = messplatz.Reader(dev=True)
     assert not a.is_open
+    assert isinstance(a, serial.Serial)
+    del a
 
-    @pytest.mark.skipif(not a.is_open, reason='requires connection')
-    def test_connection(a: messplatz.Reader):
-        pass
+def test_reader_connection():
+    a = messplatz.Reader()
 
 def test_package_manager():
     pass
