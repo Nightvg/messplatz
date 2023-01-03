@@ -1,7 +1,7 @@
 const n = 900; //30 Sekunden
-var modules = 5;
-var old_modules = 5;
-var devices = [{name: 'microcontroller', start: 0}]
+var modules = 0;
+var old_modules = 0;
+var devices = []
 var deviceGet = (name) => {for(let elem of devices){if(elem.name == name){return elem}} return null};
 var resetXAxis = () => {
     x.domain([0,n+100]);
@@ -25,7 +25,7 @@ var margin = {top: 20, right: 100, bottom: 20, left: 50},
     yscales = new Array(),
     pathnames = new Array(),
     t_data = new Array(),
-    graphnames = ['EMG1','EMG2','ECG','BR','EDA'],
+    graphnames = [],
     brush = d3.brush()                   // Add the brush feature using the d3.brush function
         .on("end", brushed);    
 
@@ -34,9 +34,8 @@ var x = d3.scaleLinear()
     .range([0, width - margin.right]),
     x_global = d3.scaleLinear()
     .domain([0, n])
-    .range([0, width - margin.right]);
-
-var y = d3.scaleLinear()
+    .range([0, width - margin.right]),
+    y = d3.scaleLinear()
     .domain([0, 5000])
     .range([height - margin.top, margin.bottom]);
 
@@ -77,7 +76,7 @@ function brushed({selection}) {
                 .data([t_datas[index]])
                 .attr("class", "line");
         } 
-        d3.select(div.querySelector("svg")).style("visibility", "");
+        d3.select(div.querySelector("svg")).style("visibility", "visible");
         d3.select(div.querySelector('.axis--x')).call(d3.axisBottom(_x));
         d3.select(div.querySelector('.axis--y')).call(d3.axisLeft(yscales[index]));    
         d3.select(div.querySelector('.line'))
@@ -93,66 +92,47 @@ function brushed({selection}) {
 }
 
 window.onload = function(){
-    for(let i = 0; i < modules; i++){
-        datas.push(new Array(n).fill(0));
-        t_datas.push(new Array(n).fill(0));
-        let t_scale = d3.scaleLinear()
-            .domain([0, 5000])
-            .range([height, 0]);
-        yscales.push(t_scale);
-        if(i > 0){
-            let copynode = document.querySelector('div.graph').cloneNode(true);
-            document.body.appendChild(copynode);
-        }
-    }
-    Array.from(document.querySelectorAll('svg.data')).forEach((svg, index) => {
-        //console.log(svg);
-        svg = d3.select(svg),
-        svg.on("dblclick",function(){
-            this.closest('div.graph').querySelector('div.controle>svg').style.visibility = 'hidden';
-        });
-        // svg.attr("width") - margin.left - margin.right,
-        // svg.attr("height") - margin.top - margin.bottom,
-        g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
-        g.append("defs").append("clipPath")
-            .attr("id", "clip")
-            .append("rect")
-            .attr("width", width)
-            .attr("height", height);
-    
-        g.append("g")
-            .attr("class", "axis axis--x")
-            .call(d3.axisBottom(x));
-    
-        g.append("g")
-            .attr("class", "axis axis--y")
-            .call(d3.axisLeft(y));
-    
-        let line = g.append("g")
-            .attr("clip-path", "url(#clip)");
-        line.append("path")
-            .data([datas[index]])
-            .attr("class", "line line-main");
-        line.append("g")
-            .attr('class', 'brush')
-            .call(brush);
-
-        svg.append("text")
-            .attr("class","headline")
-            .attr("x", width/2)
-            .attr("y", margin.top - 5)
-            .attr("text-anchor", "middle")
-            .style("font-size", "16px")
-            .text(graphnames[index]);
+    let svg = document.querySelector('svg.data')
+    //console.log(svg);
+    svg = d3.select(svg);
+    svg.on("dblclick",function(){
+        this.closest('div.graph').querySelector('div.controle>svg').style.visibility = 'hidden';
     });
-    init_graph = document.querySelector('div.graph').cloneNode(true);
-    d3.selectAll('svg.detail');
-    paths = document.querySelectorAll('.line-main');
-    pathnames = document.querySelectorAll('.headline');
+    // svg.attr("width") - margin.left - margin.right,
+    // svg.attr("height") - margin.top - margin.bottom,
+    g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    g.append("defs").append("clipPath")
+        .attr("id", "clip")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+    g.append("g")
+        .attr("class", "axis axis--x")
+        .call(d3.axisBottom(x));
+
+    g.append("g")
+        .attr("class", "axis axis--y")
+        .call(d3.axisLeft(y));
+
+    g.append("g")
+        .attr("class", "clip-path")
+        .attr("clip-path", "url(#clip)");
+    
+    svg.append("text")
+        .attr("class","headline")
+        .attr("x", width/2)
+        .attr("y", margin.top - 5)
+        .attr("text-anchor", "middle")
+        .style("font-size", "16px")
+        .text(graphnames[0]);
+
+    init_graph = document.querySelector('div.graph');
+    document.body.removeChild(init_graph);
 };
 
 function updateGraphs() {
-    for(let i = old_modules; i < modules; i++){
+    for(let j = old_modules; j < modules; j++){
         datas.push(new Array(n).fill(0));
         t_datas.push(new Array(n).fill(0));
         let t_scale = d3.scaleLinear()
@@ -160,17 +140,25 @@ function updateGraphs() {
             .range([height, 0]);
         yscales.push(t_scale);
         let copynode = init_graph.cloneNode(true);
-        d3.select(copynode.querySelector('svg')).on("dblclick",function(){
-            x.domain(d3.extent(datas[i], function(d) { return d; }));
-            d3.select(copynode.querySelector('.axis--x')).transition().call(d3.axisBottom(x));
-            d3.select(copynode.querySelector('.line-main'))
+        copynode.querySelector('.view').style.visibility = 'visible';
+        let line = d3.select(copynode.querySelector('.clip-path'));
+            console.log(line);
+            line.append("path")
+                .data([datas[j]])
+                .attr("class", "line line-main")
                 .transition()
                 .attr("d", d3.line()
                     .x(function(d, i) { return x(i); })
-                    .y(function(d, i) { return yscales[index](d); }));
+                    .y(function(d, i) { return yscales[i](d); }));
+            line.append("g")
+                .attr('class', 'brush')
+                .call(brush);
+        d3.select(copynode.querySelector('svg')).on("dblclick",function(){
+            x.domain(d3.extent(datas[j], function(d) { return d; }));
+            d3.select(copynode.querySelector('.axis--x')).transition().call(d3.axisBottom(x));
         });
         document.body.appendChild(copynode);
-        d3.select(copynode.querySelector('.healine')).text(graphnames[i]);
+        d3.select(copynode.querySelector('.headline')).text(graphnames[j]);
     }
     old_modules = modules;
     paths = document.querySelectorAll('.line-main');
@@ -182,14 +170,10 @@ function updateGraphs() {
 
 function tick(index, data) {
     datas[index].push(data);
+    datas[index].shift();
     d3.select(paths[index])
-        .attr("d", d3.line()
-            .x(function(d, i) { return x(i); })
-            .y(function(d, i) { return yscales[index](d); }))
-        .attr("transform", null)
         .transition()
         .attr("transform", "translate("+x_global(-1)+",0)");
-    datas[index].shift();
     yscales[index].domain([d3.min(datas[index]) - 300, d3.max(datas[index]) + 300]).range([height, 0]);
     d3.select(document.querySelectorAll('.axis--y')[index]).call(d3.axisLeft(yscales[index]));
 }
@@ -199,9 +183,9 @@ ws.onopen = function(e) {
 };
 
 ws.onmessage = function(message) {
-    //console.log(message.data);
     let tmp = JSON.parse(message.data);
-    let tmp_device = deviceGet(tmp.device)
+    let tmp_device = deviceGet(tmp.device);
+    console.log(tmp);
     if(!tmp_device){
         devices.push({name: tmp.device, start: modules});
         modules += tmp.data.length;
@@ -209,12 +193,11 @@ ws.onmessage = function(message) {
             graphnames.push(elem);
         });
         updateGraphs();
+        tmp_device = deviceGet(tmp.device);
     }
-    else{
-        tmp.data.forEach((elem, index) => {
-            tick(index + tmp_device.start, elem);
-        });    
-    }
+    tmp.data.forEach((elem, index) => {
+        tick(index + tmp_device.start, elem);
+    });    
 };
 
 ws.onclose = function(event) {

@@ -1,15 +1,20 @@
 hterm085-windows
 hterm085-windows.zip
 Code von Anna
+Code von Benjamin
 *.txt
 *tmp*
 temp*
-Code von Benjamin
-*.md
-node_modules/
+node_modules
 *depricated*
 *dev*
-__pycache__/*
+__pycache__
+test/__pycache__
+*.pyc
 *.svg
 *.png
+*.bat
+*.prof
+*.log
 stackable.py
+logs/*.log

@@ -7,7 +7,7 @@ import numpy as np
 import json
 from serial import Serial
 
-def reader_init(port="COM3", baudrate=500000, ip="127.0.0.1", sockport=3001, dps=60, device='microcontroller', datatype:dict={'EMG1':np.float32, 'EMG2':np.float32, 'ECG':np.float32, 'BR':np.float32, 'EDA':np.float32}):
+def reader_init(port="COM3", baudrate=500000, ip="127.0.0.1", sockport=5001, dps=60, device='microcontroller', datatype:dict={'EMG1':np.float32, 'EMG2':np.float32, 'ECG':np.float32, 'BR':np.float32, 'EDA':np.float32}):
     """
     Initialize and starts the serial reader as \'run forever\'. Needs to be started befor packer and node server.
 

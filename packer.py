@@ -10,7 +10,7 @@ import numpy as np
 from websocket import create_connection, WebSocket
 
 
-def packer_thread(port=3001, ws_address="127.0.0.1", ws_port=3000, dps=30):
+def packer_thread(port=5001, ws_address="127.0.0.1", ws_port=3000, dps=30):
     """
     Initializes data deploying unit. Used as virtual transport layer between view (node server) and reader.
     Needs to be started before reader and after the view server.
@@ -77,7 +77,7 @@ def sender_init(lock : threading.Lock, wss : WebSocket, dps=30):
             wss.send(json.dumps(res))
         sleep(dps)
 
-def packer_init(lock : threading.Lock, port=3001):
+def packer_init(lock : threading.Lock, port=5001):
     """
     Initializes data buffer unit. Places data inside a buffer for boundled access from sender thread.
 
