@@ -248,7 +248,7 @@ class SerialReader(Serial, Reader):
         self.closeSocket()
 
 class ReaderFactory:
-    def createReader(**kwargs) -> Reader:
+    def createReader(**kwargs) -> Reader|None:
         try:
             if any([x in kwargs for x in ['port','baudrate', 'dps', 'serial']]):
                 return SerialReader(**kwargs)
@@ -277,6 +277,7 @@ class PacketManager():
             ws_address  : websocket address, default on the same machine
             ws_port     : websocket port, default 3000
             sockport    : internal port for data transmission, default 3001
+            nows        : disables connection to websocket (no live charting)
         additional arguments:
             serial      : reader type serial, bool
             tablet      : reader type tablet, bool
@@ -284,14 +285,15 @@ class PacketManager():
             dps         : dataframes per second, default 60
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
-        self.dev = 'dev' in kwargs and kwargs['dev']
-        if 'dev' not in kwargs:
+        self.nows = ('dev' in kwargs and kwargs['dev']) or \
+                    ('nows' in kwargs and kwargs['nows'])
+        if self.nows is not None:
             try:
                 self.ws = create_connection("ws://"+ws_address+":"+str(ws_port))
             except ConnectionRefusedError as e:
-                self.logger.warning(msg=f'{e}')
+                self.logger.warning(f'{e}')
                 self.ws = WebSocket()
-                self.dev = True
+                self.nows = True
         self.datatype = datatype
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
@@ -317,6 +319,10 @@ class PacketManager():
         self._serverThread = self.Read(**self.__dict__)
         self._writerThread = self.Write(**self.__dict__)
     
+    def getDataFrame(self) -> pd.DataFrame|None:
+        return self._writerThread.df if self._writerThread.is_alive() else None
+    def resetDataFrame(self) -> None:
+        self._writerThread.df = self.df
     def close(self) -> None:
         self.reader.stop()
         self._serverThread.join()
@@ -356,7 +362,7 @@ class PacketManager():
                                 for d,dtype in zip(iniSp,self.datatype.values())
                             ] 
                             self.q.put(list(zip(*res)))
-                            if not self.dev:
+                            if not self.nows:
                                 res = np.mean(res, axis=1).tolist()[:-1] if \
                                     len(res[0]) > 1 else res[:-1]
                                 self.ws.send(
