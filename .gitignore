@@ -2,6 +2,12 @@ hterm085-windows
 hterm085-windows.zip
 Code von Anna
 Code von Benjamin
+out
+build
+.vscode
+*.out
+*.puml
+*.egg-info
 *.txt
 *tmp*
 temp*

@@ -12,7 +12,7 @@ def jss(x,names):
     'data': len(names)*[1000*math.sin(x/10)],
     'device': 'tester'
 })
-while True:
+while i < 1000:
     try:
         if i < 500:
             ws.send(

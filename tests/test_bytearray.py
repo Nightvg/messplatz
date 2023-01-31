@@ -28,6 +28,10 @@ def test_ByteArray_listMask_nonstatic():
     assert a.listMask([1,2,3]) == [b'\x00']
     assert a.listMask([2,1,3]) == [b'\x00']
 
+def test_ByteArray_listMask_huge():
+    a = ByteArray(20*b'2').listMask([2,2])
+    assert len(a) == 5 and len(a[0][0]) == 2 and len(a[-1][1]) == 2
+
 def initLog():
     # create logger with 'spam_application'
     logger = logging.getLogger('messplatz')
@@ -50,5 +54,5 @@ def initLog():
 
 if __name__ == '__main__':
     a = ByteArray(100*b'\x01\x02')
-    print(a.listMask([1,1]))
+    print(a.listMask([2,2]))
     print(a)
