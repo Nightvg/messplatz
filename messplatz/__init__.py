@@ -1,7 +1,6 @@
 from copy import deepcopy
 import json
-import pickle
-from datetime import datetime
+from datetime import datetime, date
 from queue import Queue
 from socket import AF_INET, SOCK_STREAM
 from socket import error as SockErr
@@ -21,6 +20,7 @@ import serial.tools.list_ports as list_ports
 from websocket import create_connection, WebSocket
 
 module_logger = logging.getLogger('main.messplatz')
+logging.basicConfig(filename=f'{date.today()}.log',filemode="a")
 
 class CtrlFlags():
     SYNC = b'\x0b'
@@ -101,11 +101,9 @@ class Tablet(QWidget):
     def tabletEvent(self, tabletEvent : QTabletEvent):
         try:
             self.sock.sendall(
-                pickle.dumps(
-                    {
-                        'data': int(tabletEvent.pressure()*1000),
-                        'timestamp':datetime.now()}
-                )
+                np.int16(tabletEvent.pressure()*1000).tobytes() + \
+                np.float64(datetime.now().timestamp()).tobytes() + \
+                b'\r\n'
             )
             #TODO ändern
             tabletEvent.accept()
@@ -285,15 +283,15 @@ class PacketManager():
             dps         : dataframes per second, default 60
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
-        self.nows = ('dev' in kwargs and kwargs['dev']) or \
-                    ('nows' in kwargs and kwargs['nows'])
-        if self.nows is not None:
+        self.dev = 'dev' in kwargs and kwargs['dev']
+        self.nows = self.dev or ('nows' in kwargs and kwargs['nows'])
+        if not self.dev:
             try:
                 self.ws = create_connection("ws://"+ws_address+":"+str(ws_port))
             except ConnectionRefusedError as e:
                 self.logger.warning(f'{e}')
                 self.ws = WebSocket()
-                self.nows = True
+                self.dev = True
         self.datatype = datatype
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
@@ -402,11 +400,12 @@ class PacketManager():
                     self.logger.info(f'received {len(tmp)} rows of data')
                     length = len(self.df)
                     if length == 0:
+                        with open('file.csv','a') as file:
+                            file.write(tmp.to_csv())
                         self.df = tmp
                     if length > 0:
+                        with open('file.csv','a') as file:
+                            file.write(tmp.to_csv(header=False))
                         self.df = pd.concat([self.df, tmp], ignore_index=True)
-                    # if l + len(data['data']) > 300:
-                    #     self.df = self.df[l-300:]
-                    #TODO -> an dieser Stelle kann zum File geschrieben werden
             self.events['endWork'].set()
             return True
