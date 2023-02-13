@@ -390,22 +390,21 @@ class PacketManager():
             )
             self.logger = logging.getLogger('messplatz.Write')
         def _write(self) -> bool:
-            while not (self.q.empty() and self.events['endSend'].is_set()):
-                if not self.q.empty():
-                    data = self.q.get()
-                    tmp = pd.DataFrame(
-                        data,
-                        columns=self.df.columns
-                    ).astype(self.datatype)
-                    self.logger.info(f'received {len(tmp)} rows of data')
-                    length = len(self.df)
-                    if length == 0:
-                        with open('file.csv','a') as file:
+            with open('file.csv','a') as file:
+                while not (self.q.empty() and self.events['endSend'].is_set()):
+                    if not self.q.empty():
+                        data = self.q.get()
+                        tmp = pd.DataFrame(
+                            data,
+                            columns=self.df.columns
+                        ).astype(self.datatype)
+                        self.logger.info(f'received {len(tmp)} rows of data')
+                        length = len(self.df)
+                        if length == 0:
                             file.write(tmp.to_csv())
-                        self.df = tmp
-                    if length > 0:
-                        with open('file.csv','a') as file:
+                            self.df = tmp
+                        if length > 0:
                             file.write(tmp.to_csv(header=False))
-                        self.df = pd.concat([self.df, tmp], ignore_index=True)
-            self.events['endWork'].set()
+                            #self.df = pd.concat([self.df, tmp], ignore_index=True)
+                self.events['endWork'].set()
             return True
