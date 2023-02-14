@@ -1,8 +1,8 @@
-from messplatz import PacketManager
+from messplatz import Manager
 import numpy as np
 
 try:
-    a = PacketManager(
+    a = Manager(
         datatype={
             'EMG1':np.float32,
             'EMG2':np.float32,
@@ -12,8 +12,7 @@ try:
         },
         name='microcontroller',
         sockport=3001,
-        serial=True,
-        nows=True
+        serial=True
     )
     a.start()
 

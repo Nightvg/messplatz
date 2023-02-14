@@ -1,11 +1,11 @@
-from messplatz import PacketManager, SerialReader
+from messplatz import Manager, SerialReader
 import numpy as np
 from time import sleep
 import pytest
 
-def test_PacketManager():
+def test_Manager():
     TRANGE = 100
-    a = PacketManager(
+    a = Manager(
         datatype={
             'EMG1':np.float16,
             'ECG':np.int8
@@ -25,9 +25,9 @@ def test_PacketManager():
     a.close()
     assert len(a._writerThread.df) == 2*TRANGE
 
-def test_PacketManager_realconnection():
+def test_Manager_realconnection():
     TIME = 5
-    a = PacketManager(
+    a = Manager(
         datatype={
             'EMG1':np.float32,
             'EMG2':np.float32,
@@ -55,7 +55,7 @@ def test_PacketManager_realconnection():
 
 
 if __name__ == '__main__':
-    a = PacketManager(
+    a = Manager(
         datatype={
             'EMG1':np.float32,
             'EMG2':np.float32,

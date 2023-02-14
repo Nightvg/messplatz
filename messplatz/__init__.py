@@ -9,15 +9,16 @@ from threading import Thread, Timer, Event
 from time import sleep
 from typing import Any
 import logging
+import requests
 
-import ntplib
 import pandas as pd
 from PyQt5.QtGui import QTabletEvent
 from PyQt5.QtWidgets import QWidget, QApplication
 import numpy as np
 from serial import Serial, serialutil
 import serial.tools.list_ports as list_ports
-from websocket import create_connection, WebSocket
+#import flask
+#from scipy.signal import iirdesign, lfilter
 
 module_logger = logging.getLogger('main.messplatz')
 logging.basicConfig(filename=f'{date.today()}.log',filemode="a")
@@ -68,19 +69,7 @@ class Reader:
         self.MAX_ATTEMPS = 5
         self._ATTEMPTS = 0
         self.events = events
-        self._SYNCFLAG = self._timeSync()
         self.logger = logging.getLogger('messplatz.Reader')
-    def _timeSync(self) -> bool:
-        try:
-            tc = ntplib.NTPClient().request('de.pool.ntp.org', version=4)
-            self._TSTART = datetime.fromtimestamp(tc.orig_time)
-            self._TSYNC = datetime.fromtimestamp(tc.tx_time + tc.delay / 2)
-            return True
-        except Exception as e:
-            self.logger.error(f'{e}')
-            return False
-    def _getTime(self) -> datetime:
-        return datetime.now() - self._TSTART + self._TSYNC
     def connectSocket(self) -> None:
         self.sock.connect(self._addr)
     def closeSocket(self) -> None:
@@ -187,50 +176,48 @@ class SerialReader(Serial, Reader):
         self._ROWS = 0
         self._timeLast = None
     def loop(self, data=b'') -> None:
-        if self._SYNCFLAG:
-            try:
-                stamplist = []                
-                self._READBUFFER += self.read_all() if not self._ISDEV else data
-                vals = [
-                    self._LCORR(dFrame) \
-                    for dFrame in self._READBUFFER.split(b'\r\n')[:-1]
+        try:
+            stamplist = []                
+            self._READBUFFER += self.read_all() if not self._ISDEV else data
+            vals = [
+                self._LCORR(dFrame) \
+                for dFrame in self._READBUFFER.split(b'\r\n')[:-1]
+            ]
+            corr_list = np.arange(len(vals))*1/2000
+            if self._timeLast is None:
+                self._timeLast = datetime.now().timestamp()
+                stamplist = [
+                    x.tobytes() for x in corr_list[::-1] + self._timeLast
                 ]
-                corr_list = np.arange(len(vals))*1/2000
-                if self._timeLast is None:
-                    self._timeLast = datetime.now().timestamp()
-                    stamplist = [
-                        x.tobytes() for x in corr_list[::-1] + self._timeLast
-                    ]
-                else:
-                    stamplist = [
-                        x.tobytes() for x in corr_list + 1 + self._timeLast
-                    ]
-                    self._timeLast = np.frombuffer(stamplist[-1],np.float64)[0]
-                if len(self._READBUFFER) > 0:
-                    self._READBUFFER = self._READBUFFER[
-                        self._READBUFFER.rindex(b'\r\n')+2:
-                    ] 
-                msg = b''.join([x + y for x,y in zip(vals,stamplist)])
-                self._ROWS = self._ROWS + len(vals)
-                self.logger.info(
-                    f'sent {len(vals)} rows of data, total of {len(msg)} bytes'
-                )
-                while len(msg) > CtrlFlags.MAXB:
-                    self.sock.send(msg[:CtrlFlags.MAXB])
-                    msg = msg[CtrlFlags.MAXB:]
-                self.sock.send(msg)
-            except FileNotFoundError as e:
-                if self._ATTEMPTS > 5:
-                    self.logger.error('Could not reconnect, shuting down')
-                    self.stop()
-                    return
-                self._ATTEMPTS += 1
-                self.logger.warning(f'{e}')
-                self.open()    
-            except Exception as e:
-                self.logger.error(f'{e}')
-        else:
-            self._SYNCFLAG = self._SAMEMACHINE and self._timeSync()
+            else:
+                stamplist = [
+                    x.tobytes() for x in corr_list + 1 + self._timeLast
+                ]
+                self._timeLast = np.frombuffer(stamplist[-1],np.float64)[0]
+            if len(self._READBUFFER) > 0:
+                self._READBUFFER = self._READBUFFER[
+                    self._READBUFFER.rindex(b'\r\n')+2:
+                ] 
+            msg = b''.join([x + y for x,y in zip(vals,stamplist)])
+            self._ROWS = self._ROWS + len(vals)
+            self.logger.info(
+                f'sent {len(vals)} rows of data, total of {len(msg)} bytes'
+            )
+            while len(msg) > CtrlFlags.MAXB:
+                self.sock.send(msg[:CtrlFlags.MAXB])
+                msg = msg[CtrlFlags.MAXB:]
+            self.sock.send(msg)
+        except FileNotFoundError as e:
+            if self._ATTEMPTS > 5:
+                self.logger.error('Could not reconnect, shuting down')
+                self.stop()
+                return
+            self._ATTEMPTS += 1
+            self.logger.warning(f'{e}')
+            self.open()    
+        except Exception as e:
+            self.logger.error(f'{e}')
+
     def run(self):
         self.logger.info('starting connection...')
         if not self._ISDEV:
@@ -258,13 +245,11 @@ class ReaderFactory:
             logging.warning(f'{e}')
             return ReaderFactory.createReader(**{**kwargs, 'dev':True})
 
-class PacketManager():
+class Manager():
     def __init__(
             self,
             datatype:dict[str,Any],
             name: str,
-            ws_address="127.0.0.1",
-            ws_port=3000,
             **kwargs
         ) -> None:      
         '''
@@ -272,10 +257,9 @@ class PacketManager():
             datatype    : dictionary of name(s) and datatype(s) of the reader inputs
             name        : name of the device
         optional arguments:
-            ws_address  : websocket address, default on the same machine
-            ws_port     : websocket port, default 3000
+            ip          : neccessary if receiving part is not on the local machine
             sockport    : internal port for data transmission, default 3001
-            nows        : disables connection to websocket (no live charting)
+            filter      : list of filters (one for each datatype)
         additional arguments:
             serial      : reader type serial, bool
             tablet      : reader type tablet, bool
@@ -284,14 +268,10 @@ class PacketManager():
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
         self.dev = 'dev' in kwargs and kwargs['dev']
-        self.nows = self.dev or ('nows' in kwargs and kwargs['nows'])
-        if not self.dev:
-            try:
-                self.ws = create_connection("ws://"+ws_address+":"+str(ws_port))
-            except ConnectionRefusedError as e:
-                self.logger.warning(f'{e}')
-                self.ws = WebSocket()
-                self.dev = True
+        #self.api = flask.Flask(__name__)
+        self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
+        self.filters = kwargs['filter'] if 'filter' in kwargs else \
+            {x: {'b':[1], 'a':[1]} for x in datatype.keys()}
         self.datatype = datatype
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
@@ -316,11 +296,13 @@ class PacketManager():
         self.q = Queue()
         self._serverThread = self.Read(**self.__dict__)
         self._writerThread = self.Write(**self.__dict__)
-    
-    def getDataFrame(self) -> pd.DataFrame|None:
-        return self._writerThread.df if self._writerThread.is_alive() else None
-    def resetDataFrame(self) -> None:
-        self._writerThread.df = self.df
+
+        # @self.api.put('/filter')
+        # def filter(self):
+        #     pass_args = flask.request.get_json()
+        #     b,a = iirdesign(**pass_args)
+        #     self.filters[pass_args['name']] = {'b': b, 'a': a}
+
     def close(self) -> None:
         self.reader.stop()
         self._serverThread.join()
@@ -359,19 +341,17 @@ class PacketManager():
                                 np.frombuffer(b''.join(d), dtype).tolist() \
                                 for d,dtype in zip(iniSp,self.datatype.values())
                             ] 
-                            self.q.put(list(zip(*res)))
-                            if not self.nows:
-                                res = np.mean(res, axis=1).tolist()[:-1] if \
-                                    len(res[0]) > 1 else res[:-1]
-                                self.ws.send(
-                                    json.dumps(
-                                        {
-                                            'names': list(self.datatype.keys())[:-1], 
-                                            'device': self.device,
-                                            'data': res
-                                        }
-                                    )
+                            self.q.put(list(zip(*res)))                
+                            requests.post(
+                                f'http://{self.ip}',
+                                json=json.dumps(
+                                    {
+                                        'names': list(self.datatype.keys())[:-1], 
+                                        'device': self.device,
+                                        'data': None
+                                    }
                                 )
+                            )
                             data = []
                     except SockErr as e:
                         self.logger.error(f'{e}')
