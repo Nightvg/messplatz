@@ -1,5 +1,4 @@
 const express = require("express");
-const {PythonShell} = require("python-shell");
 
 const PORT = process.env.PORT || 80;
 
@@ -7,25 +6,25 @@ const app = express();
 var graphs = [];
 
 //SCRIPTS
-
+app.use(express.json());
 app.use(express.static('scripts'));
 
 //ROUTING
 
 //VIEW - ROOT
-app.get('/view', (res, req) => {
+app.get('/view', (req, res) => {
     res.sendFile(__dirname + '/view.html');
 });
 
 //VIEW - INIT GRAPHS
-app.get('/init', (res, req) => {
+app.get('/init', (req, res) => {
     res.json({
         graphs: graphs
     })
 });
 
 //HTTP API - GET FILTER COEFF
-app.get('/filter', (res, req) => {
+app.get('/filter', (req, res) => {
     //TODO args richtig machen
     let options = {
         mode: 'json',
@@ -42,8 +41,9 @@ app.get('/filter', (res, req) => {
 });
 
 //HTTP API - RECEIVE DATA
-app.post('/plots', (res, req) => {
-    req = JSON.parse(req.body)
+app.put('/data', (req, res) => {
+    data = req.body
+    console.log(data)
     /*TODO -> 
         1. add data
         2. apply filter (if there is one)

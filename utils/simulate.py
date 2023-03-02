@@ -1,5 +1,6 @@
 from messplatz import Manager
 import numpy as np
+from time import sleep
 
 try:
     a = Manager(
@@ -15,6 +16,10 @@ try:
         serial=True
     )
     a.start()
+    while True:
+        sleep(0.5)
 
 except KeyboardInterrupt:
+    a.close()
+except Exception:
     a.close()

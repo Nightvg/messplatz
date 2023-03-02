@@ -1,6 +1,7 @@
 from copy import deepcopy
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from multiprocessing import Pool
 from queue import Queue
 from socket import AF_INET, SOCK_STREAM
 from socket import error as SockErr
@@ -10,6 +11,7 @@ from time import sleep
 from typing import Any
 import logging
 import requests
+import os
 
 import pandas as pd
 from PyQt5.QtGui import QTabletEvent
@@ -17,11 +19,12 @@ from PyQt5.QtWidgets import QWidget, QApplication
 import numpy as np
 from serial import Serial, serialutil
 import serial.tools.list_ports as list_ports
-#import flask
-#from scipy.signal import iirdesign, lfilter
+import flask
+from scipy.signal import iirdesign, lfilter
 
 module_logger = logging.getLogger('main.messplatz')
-logging.basicConfig(filename=f'{date.today()}.log',filemode="a")
+logpath = os.path.join(os.path.dirname(__file__),'../logs/')
+logging.basicConfig(filename=f'{logpath}{date.today()}.log',filemode="a")
 
 class CtrlFlags():
     SYNC = b'\x0b'
@@ -34,7 +37,7 @@ class CtrlFlags():
 class ByteArray(bytes):
     def __new__(cls, byte=b''):
         return super().__new__(cls, byte)
-    def listMask(self, cmpList:list) -> list:
+    def listMask(self, cmpList:list) -> list[bytes] | list[list[bytes]]:
         buff = self
         def _part(li,s): 
             return [] if len(li)==0 \
@@ -42,10 +45,7 @@ class ByteArray(bytes):
             else [li[:s[0]]] + _part(li[s[0]:], s[1:])
         res = []
         while len(buff) > 0:
-            if len(self) <= sum(cmpList):
-                res += _part(buff[:sum(cmpList)],cmpList)
-            else:
-                res += [_part(buff[:sum(cmpList)],cmpList)]
+            res += [_part(buff[:sum(cmpList)], cmpList)]
             buff = buff[sum(cmpList):]
         return res
         
@@ -179,21 +179,19 @@ class SerialReader(Serial, Reader):
         try:
             stamplist = []                
             self._READBUFFER += self.read_all() if not self._ISDEV else data
+            if self._timeLast is None:
+                self._timeLast = datetime.now()
             vals = [
                 self._LCORR(dFrame) \
                 for dFrame in self._READBUFFER.split(b'\r\n')[:-1]
             ]
-            corr_list = np.arange(len(vals))*1/2000
-            if self._timeLast is None:
-                self._timeLast = datetime.now().timestamp()
-                stamplist = [
-                    x.tobytes() for x in corr_list[::-1] + self._timeLast
-                ]
-            else:
-                stamplist = [
-                    x.tobytes() for x in corr_list + 1 + self._timeLast
-                ]
-                self._timeLast = np.frombuffer(stamplist[-1],np.float64)[0]
+            stamplist = [
+                np.float64(
+                    (self._timeLast + timedelta(microseconds=x)).timestamp()
+                ).tobytes()\
+                for x in range(0,len(vals)*500,500)
+            ]
+            self._timeLast += timedelta(microseconds=len(vals)*500)
             if len(self._READBUFFER) > 0:
                 self._READBUFFER = self._READBUFFER[
                     self._READBUFFER.rindex(b'\r\n')+2:
@@ -228,22 +226,27 @@ class SerialReader(Serial, Reader):
         self.logger.info('stopping connection...')
         if not self._ISDEV:
             self.write(b'1') 
-        sleep(1)
+        sleep(3)
         self.timer.cancel()
         self.closeSocket()
 
 class ReaderFactory:
     def createReader(**kwargs) -> Reader|None:
+        res = None
         try:
             if any([x in kwargs for x in ['port','baudrate', 'dps', 'serial']]):
-                return SerialReader(**kwargs)
+                res = SerialReader(**kwargs)
             elif any([x in kwargs for x in ['tablet']]):
-                return TabletReader(**kwargs)
+                res = TabletReader(**kwargs)
             else:
-                return None
+                #TODO new Readertypes
+                res = None
         except serialutil.SerialException as e:
             logging.warning(f'{e}')
-            return ReaderFactory.createReader(**{**kwargs, 'dev':True})
+        except Exception as e:
+            logging.warning(f'{e}')
+        finally:
+            return res
 
 class Manager():
     def __init__(
@@ -268,7 +271,7 @@ class Manager():
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
         self.dev = 'dev' in kwargs and kwargs['dev']
-        #self.api = flask.Flask(__name__)
+        self.api = flask.Flask(__name__)
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
         self.filters = kwargs['filter'] if 'filter' in kwargs else \
             {x: {'b':[1], 'a':[1]} for x in datatype.keys()}
@@ -297,11 +300,11 @@ class Manager():
         self._serverThread = self.Read(**self.__dict__)
         self._writerThread = self.Write(**self.__dict__)
 
-        # @self.api.put('/filter')
-        # def filter(self):
-        #     pass_args = flask.request.get_json()
-        #     b,a = iirdesign(**pass_args)
-        #     self.filters[pass_args['name']] = {'b': b, 'a': a}
+        @self.api.put('/filter')
+        def filter(self):
+            pass_args = flask.request.get_json()
+            b,a = iirdesign(**pass_args)
+            self.filters[pass_args['name']] = {'b': b, 'a': a}
 
     def close(self) -> None:
         self.reader.stop()
@@ -311,6 +314,7 @@ class Manager():
         self._serverThread.start()
         self._writerThread.start()
         self.reader.run()
+        self.api.run(port=8080)
 
     class Read(Thread):
         def __init__(self, **kwargs):
@@ -322,43 +326,50 @@ class Manager():
             )
             self.logger = logging.getLogger('messplatz.Read')
         def _read(self):
+            def format(elems):
+                if len(elems) > 1:
+                    elems = zip(*elems)
+                    return [
+                        np.frombuffer(b''.join(d), dtype).tolist() \
+                        for d,dtype in zip(elems,self.datatype.values())
+                    ]
+                return [
+                    np.frombuffer(d, dtype).tolist() \
+                    for d,dtype in zip(elems[0],self.datatype.values())
+                ]
             with socket(AF_INET, SOCK_STREAM) as sock:
                 #sock.setblocking(False)
                 sock.bind(('', self.port))
                 sock.listen(1)
                 conn, _  = sock.accept()
                 data = b''
-                while not self.events['endSend'].is_set():
-                    try:
+
+                with Pool(4) as pool:
+                    while not self.events['endSend'].is_set():
                         tmp = conn.recv(CtrlFlags.MAXB)
                         data += tmp
-                        byteSize = not len(data) % sum(self.BUFFBYTES)
-                        if len(tmp) < CtrlFlags.MAXB and byteSize:  
-                            #tmpLen = len(data)  
-                            #self.logger.info(f'received {tmpLen} bytes')
-                            iniSp = list(zip(*ByteArray(data).listMask(self.BUFFBYTES)))
-                            res = [
-                                np.frombuffer(b''.join(d), dtype).tolist() \
-                                for d,dtype in zip(iniSp,self.datatype.values())
-                            ] 
-                            self.q.put(list(zip(*res)))                
-                            requests.post(
-                                f'http://{self.ip}',
-                                json=json.dumps(
-                                    {
-                                        'names': list(self.datatype.keys())[:-1], 
-                                        'device': self.device,
-                                        'data': None
-                                    }
+                        if len(data) > 0 and (len(data) % sum(self.BUFFBYTES)) == 0:  
+                            try:
+                                res = format(ByteArray(data).listMask(self.BUFFBYTES))
+                                self.q.put(res)              
+                                pool.apply_async(
+                                    _asyncSend, 
+                                    args=(
+                                        self.device,
+                                        list(self.datatype.keys())[:-1],
+                                        self.ip,
+                                        res,
+                                    )
                                 )
-                            )
-                            data = []
-                    except SockErr as e:
-                        self.logger.error(f'{e}')
-                        continue
-                    except Exception as e:
-                        #self.events['endWork'].set()                
-                        self.logger.error(f'{e}')
+                                data = b''
+                            except SockErr as e:
+                                self.logger.error(f'{e}')
+                                continue
+                            except TypeError as e:
+                                self.logger.error(f'Wrong Type: {e}')
+                            except Exception as e:
+                                #self.events['endWork'].set()                
+                                self.logger.error(f'{e}')
             return False
     class Write(Thread):
         def __init__(self, **kwargs):
@@ -370,21 +381,41 @@ class Manager():
             )
             self.logger = logging.getLogger('messplatz.Write')
         def _write(self) -> bool:
-            with open('file.csv','a') as file:
-                while not (self.q.empty() and self.events['endSend'].is_set()):
-                    if not self.q.empty():
-                        data = self.q.get()
+            init = False
+            path = os.path.dirname(__file__)
+            filepath = os.path.join(path,f'../data/{date.today()}.csv')
+            while not (self.q.empty() and self.events['endSend'].is_set()):
+                if not self.q.empty():
+                    with open(filepath,'a') as file:
+                        data = list(zip(*self.q.get()))
                         tmp = pd.DataFrame(
-                            data,
                             columns=self.df.columns
                         ).astype(self.datatype)
-                        self.logger.info(f'received {len(tmp)} rows of data')
-                        length = len(self.df)
-                        if length == 0:
-                            file.write(tmp.to_csv())
-                            self.df = tmp
-                        if length > 0:
-                            file.write(tmp.to_csv(header=False))
-                            #self.df = pd.concat([self.df, tmp], ignore_index=True)
-                self.events['endWork'].set()
+                        for ind,i in enumerate(data):
+                            tmp.loc[ind] = i
+                        self.logger.info(f'received {len(data)} rows of data')
+                        if not init:
+                            file.write(tmp.to_csv(index=False))
+                            init = True
+                        else:
+                            file.write(tmp.to_csv(header=False, index=False))
+            self.events['endWork'].set()
             return True
+
+def _asyncSend(device, names, ip, datas):
+    try:
+        requests.put(
+            f'http://{ip}/data',
+            json={
+                'names': names, 
+                'device': device,
+                'data': datas[:-1]
+            },
+            headers={
+                'connection': 'close'
+            },
+            stream=False,
+            timeout=0.10
+        )
+    except Exception as e:
+        print(e)
