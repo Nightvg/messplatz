@@ -352,15 +352,15 @@ class Manager():
                             try:
                                 res = format(ByteArray(data).listMask(self.BUFFBYTES))
                                 self.q.put(res)              
-                                pool.apply_async(
-                                    _asyncSend, 
-                                    args=(
-                                        self.device,
-                                        list(self.datatype.keys())[:-1],
-                                        self.ip,
-                                        res,
-                                    )
-                                )
+                                # pool.apply_async(
+                                #     _asyncSend, 
+                                #     args=(
+                                #         self.device,
+                                #         list(self.datatype.keys())[:-1],
+                                #         self.ip,
+                                #         res,
+                                #     )
+                                # )
                                 data = b''
                             except SockErr as e:
                                 self.logger.error(f'{e}')
