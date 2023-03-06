@@ -15,18 +15,18 @@ def test_ByteArray_listMask_empty():
     assert a.listMask([1,2,3]) == []
 
 def test_ByteArray_listMask_static():
-    assert ByteArray(b'\x00\x01\x02\x03\x04\x06').listMask([1,2,3]) == [
+    assert ByteArray(b'\x00\x01\x02\x03\x04\x06').listMask([1,2,3]) == [[
             b'\x00', b'\x01\x02', b'\x03\x04\x06'
-    ]
-    assert ByteArray(b'\x00').listMask([1,2,3]) == [b'\x00']
-    assert ByteArray(b'\x00').listMask([2,1,3]) == [b'\x00']
+    ]]
+    assert ByteArray(b'\x00').listMask([1,2,3]) == [[b'\x00']]
+    assert ByteArray(b'\x00').listMask([2,1,3]) == [[b'\x00']]
     
 def test_ByteArray_listMask_nonstatic():
     a = ByteArray(b'\x00\x01\x02\x03\x04\x06')
-    assert a.listMask([1,2,3]) == [b'\x00', b'\x01\x02', b'\x03\x04\x06']
+    assert a.listMask([1,2,3]) == [[b'\x00', b'\x01\x02', b'\x03\x04\x06']]
     a = ByteArray(b'\x00')
-    assert a.listMask([1,2,3]) == [b'\x00']
-    assert a.listMask([2,1,3]) == [b'\x00']
+    assert a.listMask([1,2,3]) == [[b'\x00']]
+    assert a.listMask([2,1,3]) == [[b'\x00']]
 
 def test_ByteArray_listMask_huge():
     a = ByteArray(20*b'2').listMask([2,2])

@@ -1,5 +1,4 @@
 from copy import deepcopy
-import json
 from datetime import datetime, date, timedelta
 from multiprocessing import Pool
 from queue import Queue
@@ -7,7 +6,6 @@ from socket import AF_INET, SOCK_STREAM
 from socket import error as SockErr
 from socket import socket
 from threading import Thread, Timer, Event
-from time import sleep
 from typing import Any
 import logging
 import requests
@@ -22,9 +20,24 @@ import serial.tools.list_ports as list_ports
 import flask
 from scipy.signal import iirdesign, lfilter
 
+coredir = os.path.expanduser('~')
+if not os.path.exists(os.path.join(coredir,'messplatz_data\\')):
+    os.mkdir(os.path.join(coredir,'messplatz_data\\'))
+logpath = os.path.join(coredir,'messplatz_data\\logs\\')
+datapath = os.path.join(coredir,'messplatz_data\\data\\')
+if not os.path.exists(logpath):
+    os.mkdir(logpath)
+    # logfile = open(f'{logpath}{date.today()}.log', 'w')
+    # logfile.close()
+if not os.path.exists(datapath):
+    os.mkdir(datapath)
+logging.basicConfig(
+    filename=f'{logpath}{date.today()}.log',
+    filemode="a",
+    format='%(asctime)s [%(levelname)s] %(message)s (%(name)s:%(lineno)s)',
+    datefmt="%y-%m-%d"
+)
 module_logger = logging.getLogger('main.messplatz')
-logpath = os.path.join(os.path.dirname(__file__),'../logs/')
-logging.basicConfig(filename=f'{logpath}{date.today()}.log',filemode="a")
 
 class CtrlFlags():
     SYNC = b'\x0b'
@@ -75,6 +88,7 @@ class Reader:
     def closeSocket(self) -> None:
         self.events['endSend'].set()
         self.events['endWork'].wait(timeout=None)
+        self.sock.shutdown(1)
         self.sock.close()
 
 class Tablet(QWidget):
@@ -126,6 +140,7 @@ class SerialReader(Serial, Reader):
                 'BR':np.float32,
                 'EDA':np.float32
             },
+            frequency=1666,
             **kwargs
         ):
         """
@@ -138,6 +153,7 @@ class SerialReader(Serial, Reader):
             dps         : dataframes per second
             datatype    : list of types of inputdata, has to be the same type thoughout
                           the set of inputs
+            frequency   : frequency of the µC in Hz
         """
         if 'dev' not in kwargs:
             #see microcontroller for baudrate, port could change on differnt devices
@@ -161,7 +177,8 @@ class SerialReader(Serial, Reader):
         else:
             Serial.__init__(self)
             Reader.__init__(self, **kwargs)
-        self.timer = RepeatTimer(1/dps, self.loop)
+        self.timer = None
+        self.interval = 1/dps
         self.datatype = datatype  
         #number of bytes to read
         BUFFBYTES = sum([np.dtype(x).itemsize for x in self.datatype.values()])
@@ -174,28 +191,34 @@ class SerialReader(Serial, Reader):
         self._ISDEV = 'dev' in kwargs and kwargs['dev']
         self._LCORR = lambda x : x if len(x) == BUFFBYTES else self.WRONGREAD
         self._ROWS = 0
+        self._FRMS = int(1/frequency * 1e6)
         self._timeLast = None
     def loop(self, data=b'') -> None:
         try:
             stamplist = []                
             self._READBUFFER += self.read_all() if not self._ISDEV else data
+            if len(self._READBUFFER) == 0:
+                return
             if self._timeLast is None:
                 self._timeLast = datetime.now()
+            splList = self._READBUFFER.split(b'\r\n')
             vals = [
                 self._LCORR(dFrame) \
-                for dFrame in self._READBUFFER.split(b'\r\n')[:-1]
-            ]
+                for dFrame in splList[:-1]
+            ] if len(splList) > 1 else [self._LCORR(splList[0])]
             stamplist = [
                 np.float64(
                     (self._timeLast + timedelta(microseconds=x)).timestamp()
                 ).tobytes()\
-                for x in range(0,len(vals)*500,500)
+                for x in range(0,len(vals)*self._FRMS,self._FRMS)
             ]
-            self._timeLast += timedelta(microseconds=len(vals)*500)
-            if len(self._READBUFFER) > 0:
+            self._timeLast += timedelta(microseconds=len(vals)*self._FRMS)
+            if len(self._READBUFFER) > len(self.WRONGREAD) + 2:
                 self._READBUFFER = self._READBUFFER[
                     self._READBUFFER.rindex(b'\r\n')+2:
                 ] 
+            else:
+                self._READBUFFER = b''
             msg = b''.join([x + y for x,y in zip(vals,stamplist)])
             self._ROWS = self._ROWS + len(vals)
             self.logger.info(
@@ -218,17 +241,19 @@ class SerialReader(Serial, Reader):
 
     def run(self):
         self.logger.info('starting connection...')
+        self.connectSocket()
+        self.timer = RepeatTimer(self.interval, self.loop)
         if not self._ISDEV:
             self.write(b'2')
-        self.connectSocket()
         self.timer.start()
     def stop(self):
         self.logger.info('stopping connection...')
+        self.logger.info(f'Totally send: {self._ROWS}')
         if not self._ISDEV:
             self.write(b'1') 
-        sleep(3)
-        self.timer.cancel()
         self.closeSocket()
+        if self.timer is not None:
+            self.timer.cancel()
 
 class ReaderFactory:
     def createReader(**kwargs) -> Reader|None:
@@ -272,6 +297,7 @@ class Manager():
         self.logger = logging.getLogger('messplatz.PacketManager')
         self.dev = 'dev' in kwargs and kwargs['dev']
         self.api = flask.Flask(__name__)
+        self.dataf = ''
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
         self.filters = kwargs['filter'] if 'filter' in kwargs else \
             {x: {'b':[1], 'a':[1]} for x in datatype.keys()}
@@ -287,8 +313,6 @@ class Manager():
                 'sockport': self.port
             }
         )
-        self.interval = self.reader.timer.interval \
-            if isinstance(self.reader, SerialReader) else 1
         self.datatype['timestamp'] = np.float64
         self.BUFFBYTES = [np.dtype(x).itemsize for x in self.datatype.values()]
         self.df = pd.DataFrame(
@@ -297,25 +321,32 @@ class Manager():
             )
         )
         self.q = Queue()
-        self._serverThread = self.Read(**self.__dict__)
-        self._writerThread = self.Write(**self.__dict__)
+        self._ThreadList = []
 
-        @self.api.put('/filter')
-        def filter(self):
-            pass_args = flask.request.get_json()
-            b,a = iirdesign(**pass_args)
-            self.filters[pass_args['name']] = {'b': b, 'a': a}
+        # @self.api.put('/filter')
+        # def filter(self):
+        #     pass_args = flask.request.get_json()
+        #     b,a = iirdesign(**pass_args)
+        #     self.filters[pass_args['name']] = {'b': b, 'a': a}
 
     def close(self) -> None:
-        self.reader.stop()
-        self._serverThread.join()
-        self._writerThread.join()
+        if not self.dev:
+            self.reader.stop()
+        for t in self._ThreadList:
+            if t is not None and t.is_alive():
+                t.join()
     def start(self) -> None:
-        self._serverThread.start()
-        self._writerThread.start()
-        self.reader.run()
-        self.api.run(port=8080)
-
+        self.dataf = f'{datapath}{datetime.now().strftime("%y-%m-%d_%H-%M-%S")}.csv'
+        self._ThreadList = [
+            self.Read(**self.__dict__),
+            self.Write(**self.__dict__)
+        ]
+        for t in self._ThreadList:
+            t.start()
+        if not self.dev:
+            self.reader.run()
+        #self.api.run(port=8080)
+        
     class Read(Thread):
         def __init__(self, **kwargs):
             super().__init__(target=self._read)
@@ -344,32 +375,33 @@ class Manager():
                 conn, _  = sock.accept()
                 data = b''
 
-                with Pool(4) as pool:
-                    while not self.events['endSend'].is_set():
-                        tmp = conn.recv(CtrlFlags.MAXB)
-                        data += tmp
-                        if len(data) > 0 and (len(data) % sum(self.BUFFBYTES)) == 0:  
-                            try:
-                                res = format(ByteArray(data).listMask(self.BUFFBYTES))
-                                self.q.put(res)              
-                                # pool.apply_async(
-                                #     _asyncSend, 
-                                #     args=(
-                                #         self.device,
-                                #         list(self.datatype.keys())[:-1],
-                                #         self.ip,
-                                #         res,
-                                #     )
-                                # )
-                                data = b''
-                            except SockErr as e:
-                                self.logger.error(f'{e}')
-                                continue
-                            except TypeError as e:
-                                self.logger.error(f'Wrong Type: {e}')
-                            except Exception as e:
-                                #self.events['endWork'].set()                
-                                self.logger.error(f'{e}')
+                #with Pool(4) as pool:
+                while not self.events['endSend'].is_set():
+                    tmp = conn.recv(CtrlFlags.MAXB)
+                    data += tmp
+                    if len(data) > 0 and (len(data) % sum(self.BUFFBYTES)) == 0:  
+                        try:
+                            res = format(ByteArray(data).listMask(self.BUFFBYTES))
+                            self.q.put(res)              
+                            # pool.apply_async(
+                            #     _asyncSend, 
+                            #     args=(
+                            #         self.device,
+                            #         list(self.datatype.keys())[:-1],
+                            #         self.ip,
+                            #         res,
+                            #     )
+                            # )
+                            data = b''
+                        except SockErr as e:
+                            self.logger.error(f'{e}')
+                            continue
+                        except TypeError as e:
+                            self.logger.error(f'Wrong Type: {e}')
+                        except Exception as e:
+                            #self.events['endWork'].set()                
+                            self.logger.error(f'{e}')
+                sock.close()
             return False
     class Write(Thread):
         def __init__(self, **kwargs):
@@ -382,11 +414,9 @@ class Manager():
             self.logger = logging.getLogger('messplatz.Write')
         def _write(self) -> bool:
             init = False
-            path = os.path.dirname(__file__)
-            filepath = os.path.join(path,f'../data/{date.today()}.csv')
             while not (self.q.empty() and self.events['endSend'].is_set()):
                 if not self.q.empty():
-                    with open(filepath,'a') as file:
+                    with open(self.dataf,'a') as file:
                         data = list(zip(*self.q.get()))
                         tmp = pd.DataFrame(
                             columns=self.df.columns
