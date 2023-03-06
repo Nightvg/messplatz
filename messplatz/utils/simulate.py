@@ -1,8 +1,9 @@
 from time import sleep
 from messplatz import Manager
 import numpy as np
+import sys
 
-
+TIME = sys.argv[0] if len(sys.argv) > 0 else 5
 a = Manager(
     datatype={
         'EMG1':np.float32,
@@ -17,5 +18,5 @@ a = Manager(
     serial=True
 )
 a.start()
-sleep(5)
+sleep(TIME)
 a.close()
