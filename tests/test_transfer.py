@@ -31,7 +31,7 @@ def test_Manager_standard():
     assert a.dev
     a.start()
     a.reader.connectSocket()
-    for i in range(TRANGE):
+    for _ in range(TRANGE):
         a.reader.loop(b'\x00\x10\x10\r\n\x00\x10\x20\r\n')
     a.reader.closeSocket()
     a.close()

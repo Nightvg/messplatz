@@ -1,24 +1,24 @@
 from copy import deepcopy
 from datetime import datetime, date, timedelta
-from multiprocessing import Pool
-from queue import Queue
+from queue import Queue #maybe obsolete
 from socket import AF_INET, SOCK_STREAM
 from socket import error as SockErr
 from socket import socket
 from threading import Thread, Timer, Event
 from typing import Any
 import logging
-import requests
+import requests #maybe obsolete
 import os
 
 import pandas as pd
-from PyQt5.QtGui import QTabletEvent
-from PyQt5.QtWidgets import QWidget, QApplication
+from PyQt5.QtGui import QTabletEvent #maybe obsolete
+from PyQt5.QtWidgets import QWidget, QApplication #maybe obsolete
 import numpy as np
 from serial import Serial, serialutil
 import serial.tools.list_ports as list_ports
-import flask
-from scipy.signal import iirdesign, lfilter
+import flask #maybe obsolete
+from scipy.signal import iirdesign, lfilter #maybe obsolete
+import werkzeug #maybe obsolete
 
 coredir = os.path.expanduser('~')
 if not os.path.exists(os.path.join(coredir,'messplatz_data\\')):
@@ -40,12 +40,11 @@ logging.basicConfig(
 module_logger = logging.getLogger('main.messplatz')
 
 class CtrlFlags():
-    SYNC = b'\x0b'
-    SMMH = b'\xbb'
-    DONE = b'\x00'
-    FNSH = b'\xff'
-    PING = b'\x30'
-    MAXB = 8192
+    CHNG = b'3'
+    STRT = b'2'
+    STOP = b'1'
+    PING = b'0'
+    MAXB = 8192 # 2**13
 
 class ByteArray(bytes):
     def __new__(cls, byte=b''):
@@ -244,13 +243,13 @@ class SerialReader(Serial, Reader):
         self.connectSocket()
         self.timer = RepeatTimer(self.interval, self.loop)
         if not self._ISDEV:
-            self.write(b'2')
+            self.write(CtrlFlags.STRT)
         self.timer.start()
     def stop(self):
         self.logger.info('stopping connection...')
         self.logger.info(f'Totally send: {self._ROWS}')
         if not self._ISDEV:
-            self.write(b'1') 
+            self.write(CtrlFlags.STOP) 
         self.closeSocket()
         if self.timer is not None:
             self.timer.cancel()
@@ -296,11 +295,12 @@ class Manager():
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
         self.dev = 'dev' in kwargs and kwargs['dev']
-        self.api = flask.Flask(__name__)
+        # self.api = flask.Flask(__name__)
+        # self.flask = None
         self.dataf = ''
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
         self.filters = kwargs['filter'] if 'filter' in kwargs else \
-            {x: {'b':[1], 'a':[1]} for x in datatype.keys()}
+            {x: {'b':[1.], 'a':[1.]} for x in datatype.keys()}
         self.datatype = datatype
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
@@ -332,20 +332,27 @@ class Manager():
     def close(self) -> None:
         if not self.dev:
             self.reader.stop()
+            #self.flask.shutdown()
         for t in self._ThreadList:
             if t is not None and t.is_alive():
                 t.join()
+
     def start(self) -> None:
         self.dataf = f'{datapath}{datetime.now().strftime("%y-%m-%d_%H-%M-%S")}.csv'
-        self._ThreadList = [
+        self._ThreadList += [
             self.Read(**self.__dict__),
             self.Write(**self.__dict__)
-        ]
+        ]     
         for t in self._ThreadList:
             t.start()
-        if not self.dev:
-            self.reader.run()
-        #self.api.run(port=8080)
+        # if not self.dev:
+        #     self.reader.run()
+        #     self.flask = werkzeug.serving.make_server(
+        #         host='127.0.0.1',
+        #         port=8080,
+        #         app=self.api
+        #     )
+        #     self.flask.serve_forever()
         
     class Read(Thread):
         def __init__(self, **kwargs):
@@ -374,8 +381,6 @@ class Manager():
                 sock.listen(1)
                 conn, _  = sock.accept()
                 data = b''
-
-                #with Pool(4) as pool:
                 while not self.events['endSend'].is_set():
                     tmp = conn.recv(CtrlFlags.MAXB)
                     data += tmp
@@ -383,15 +388,16 @@ class Manager():
                         try:
                             res = format(ByteArray(data).listMask(self.BUFFBYTES))
                             self.q.put(res)              
-                            # pool.apply_async(
-                            #     _asyncSend, 
-                            #     args=(
-                            #         self.device,
-                            #         list(self.datatype.keys())[:-1],
-                            #         self.ip,
-                            #         res,
-                            #     )
-                            # )
+                            Thread(
+                                target=_asyncSend,
+                                kwargs={
+                                    'device':self.device,
+                                    'names':list(self.datatype.keys())[:-1],
+                                    'ip':self.ip,
+                                    'datas':res,
+                                    'filters':self.filters
+                                }
+                            ).start()
                             data = b''
                         except SockErr as e:
                             self.logger.error(f'{e}')
@@ -432,14 +438,18 @@ class Manager():
             self.events['endWork'].set()
             return True
 
-def _asyncSend(device, names, ip, datas):
+def _asyncSend(device:str, names:str, ip:str, datas:list, filters:dict):
+    tmp_datas = [
+        lfilter(**filters[name], x=np.array(data).astype(np.float32)).tolist() \
+        for data,name in zip(datas[:-1], names)
+    ] + [datas[-1]]
     try:
         requests.put(
             f'http://{ip}/data',
             json={
                 'names': names, 
                 'device': device,
-                'data': datas[:-1]
+                'data': tmp_datas
             },
             headers={
                 'connection': 'close'
@@ -447,5 +457,7 @@ def _asyncSend(device, names, ip, datas):
             stream=False,
             timeout=0.10
         )
+    except requests.ConnectionError:
+        return
     except Exception as e:
-        print(e)
+        logging.warning(f'{e}')
