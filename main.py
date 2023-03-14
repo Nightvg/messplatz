@@ -1,21 +1,22 @@
-#Standardlib
-from bytereader import *
-from packer import *
-from tablet_reader import *
 from time import sleep
-from multiprocessing import Process
-from threading import Thread
+from messplatz import Manager
+import numpy as np
+import sys
 
-if __name__ == "__main__":
-    packer = Thread(target=packer_thread, args=())
-    reader = Thread(target=reader_init, args=())
-    #tablet = Process(target=main_tab, args=())
-    
-    packer.start()
-    sleep(2)
-    reader.start()
-    #tablet.start()
-
-    packer.join()
-    reader.join()
-    #tablet.join()
+TIME = sys.argv[0] if len(sys.argv) > 0 else 5
+a = Manager(
+    datatype={
+        'EMG1':np.float32,
+        'EMG2':np.float32,
+        'ECG':np.float32,
+        'BR':np.float32,
+        'EDA':np.float32
+    },
+    name='microcontroller',
+    sockport=3001,
+    frequency=1666,
+    serial=True
+)
+a.start()
+sleep(TIME)
+a.close()
