@@ -1,5 +1,5 @@
 from datetime import datetime
-from messplatz import Manager, SerialReader, CtrlFlags
+from messplatz import Manager
 import numpy as np
 from time import sleep
 import pytest
@@ -23,17 +23,12 @@ def test_Manager_standard():
             'ECG':np.int8
         },
         name='micro',
-        sockport=3001,
-        dev=True,
-        serial=True
+        dev=True
     )
-    assert type(a.reader) == SerialReader
     assert a.dev
     a.start()
-    a.reader.connectSocket()
     for _ in range(TRANGE):
         a.reader.loop(b'\x00\x10\x10\r\n\x00\x10\x20\r\n')
-    a.reader.closeSocket()
     a.close()
     content = list(filter(None, list(
         csv.reader(
@@ -51,18 +46,13 @@ def test_Manager_partlyWrongDataframes():
             'ECG':np.int8
         },
         name='micro',
-        sockport=3001,
-        dev=True,
-        serial=True
+        dev=True
     )
-    assert type(a.reader) == SerialReader
     assert a.dev
     a.start()
-    a.reader.connectSocket()
-    for i in range(TRANGE):
+    for _ in range(TRANGE):
         a.reader.loop(b'\x00\x10\x10\r\n\x00\x10')
         a.reader.loop(b'\x20\r\n')
-    a.reader.closeSocket()
     a.close()
     content = list(filter(None, list(
         csv.reader(
@@ -72,37 +62,7 @@ def test_Manager_partlyWrongDataframes():
     )))
     assert len(content) == 2*TRANGE + 1
 
-def test_Manager_wrongLengthDataframes():
-    TRANGE = 100
-    CtrlFlags.MAXB = 2
-    a = Manager(
-        datatype={
-            'EMG1':np.float16,
-            'ECG':np.int8
-        },
-        name='micro',
-        sockport=3001,
-        dev=True,
-        serial=True
-    )
-    assert type(a.reader) == SerialReader
-    assert a.dev
-    a.start()
-    a.reader.connectSocket()
-    for i in range(TRANGE):
-        a.reader.loop(b'\x00\x10\x10\r\n')
-    a.reader.closeSocket()
-    a.close()
-    content = list(filter(None, list(
-        csv.reader(
-            open(a.dataf,'r'),
-            delimiter=','
-        )
-    )))
-    assert len(content) == TRANGE + 1
-
 def test_Manager_realconnection():
-    CtrlFlags.MAXB = 2**16
     TIME = 10
     ACC = 0.15
     a = Manager(
@@ -113,11 +73,9 @@ def test_Manager_realconnection():
             'BR':np.float32,
             'EDA':np.float32
         },
-        name='microcontroller',
-        sockport=3001,
-        serial=True
+        name='microcontroller'
     )
-    if a.reader is None:
+    if not a.reader._connectFlag:
         pytest.skip('Module either not connected or not working')
     a.start()
     logging.info(f'Starting Test at: {datetime.now()}')

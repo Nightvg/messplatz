@@ -20,6 +20,7 @@ app.get('/view', (req, res) => {
 app.post('/data', (req, res) => {
     data = req.body
     console.log(data)
+    
 
     /*TODO -> 
         1. add data
