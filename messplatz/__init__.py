@@ -5,7 +5,7 @@ from socket import AF_INET, SOCK_STREAM
 from socket import error as SockErr
 from socket import socket
 from threading import Thread, Timer, Event
-from typing import Any
+from typing import Any, Callable
 import logging
 import requests #maybe obsolete
 import os
@@ -16,9 +16,6 @@ from PyQt5.QtWidgets import QWidget, QApplication #maybe obsolete
 import numpy as np
 from serial import Serial, serialutil
 import serial.tools.list_ports as list_ports
-import flask #maybe obsolete
-from scipy.signal import iirdesign, lfilter #maybe obsolete
-import werkzeug #maybe obsolete
 
 coredir = os.path.expanduser('~')
 if not os.path.exists(os.path.join(coredir,'messplatz_data\\')):
@@ -254,7 +251,7 @@ class SerialReader(Serial, Reader):
         if self.timer is not None:
             self.timer.cancel()
 
-class ReaderFactory:
+class ReaderFactory: #maybe obsolete
     def createReader(**kwargs) -> Reader|None:
         res = None
         try:
@@ -280,13 +277,17 @@ class Manager():
             **kwargs
         ) -> None:      
         '''
+        Initialization method. Handles traffic from the measurement unit by subdividing
+        the tasks: 
+            - threaded syncronous saving to file
+            - threaded syncronous timed reading from 
+
         necessary arguments:
             datatype    : dictionary of name(s) and datatype(s) of the reader inputs
             name        : name of the device
         optional arguments:
             ip          : neccessary if receiving part is not on the local machine
             sockport    : internal port for data transmission, default 3001
-            filter      : list of filters (one for each datatype)
         additional arguments:
             serial      : reader type serial, bool
             tablet      : reader type tablet, bool
@@ -295,12 +296,8 @@ class Manager():
         '''
         self.logger = logging.getLogger('messplatz.PacketManager')
         self.dev = 'dev' in kwargs and kwargs['dev']
-        # self.api = flask.Flask(__name__)
-        # self.flask = None
         self.dataf = ''
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
-        self.filters = kwargs['filter'] if 'filter' in kwargs else \
-            {x: {'b':[1.], 'a':[1.]} for x in datatype.keys()}
         self.datatype = datatype
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
@@ -323,16 +320,12 @@ class Manager():
         self.q = Queue()
         self._ThreadList = []
 
-        # @self.api.put('/filter')
-        # def filter(self):
-        #     pass_args = flask.request.get_json()
-        #     b,a = iirdesign(**pass_args)
-        #     self.filters[pass_args['name']] = {'b': b, 'a': a}
-
     def close(self) -> None:
+        '''
+        Blocking stop method. 
+        '''
         if not self.dev:
             self.reader.stop()
-            #self.flask.shutdown()
         for t in self._ThreadList:
             if t is not None and t.is_alive():
                 t.join()
@@ -345,15 +338,7 @@ class Manager():
         ]     
         for t in self._ThreadList:
             t.start()
-        # if not self.dev:
-        #     self.reader.run()
-        #     self.flask = werkzeug.serving.make_server(
-        #         host='127.0.0.1',
-        #         port=8080,
-        #         app=self.api
-        #     )
-        #     self.flask.serve_forever()
-        
+
     class Read(Thread):
         def __init__(self, **kwargs):
             super().__init__(target=self._read)
@@ -376,7 +361,6 @@ class Manager():
                     for d,dtype in zip(elems[0],self.datatype.values())
                 ]
             with socket(AF_INET, SOCK_STREAM) as sock:
-                #sock.setblocking(False)
                 sock.bind(('', self.port))
                 sock.listen(1)
                 conn, _  = sock.accept()
@@ -395,7 +379,7 @@ class Manager():
                                     'names':list(self.datatype.keys())[:-1],
                                     'ip':self.ip,
                                     'datas':res,
-                                    'filters':self.filters
+                                    'method': requests.post
                                 }
                             ).start()
                             data = b''
@@ -404,8 +388,7 @@ class Manager():
                             continue
                         except TypeError as e:
                             self.logger.error(f'Wrong Type: {e}')
-                        except Exception as e:
-                            #self.events['endWork'].set()                
+                        except Exception as e:              
                             self.logger.error(f'{e}')
                 sock.close()
             return False
@@ -438,13 +421,10 @@ class Manager():
             self.events['endWork'].set()
             return True
 
-def _asyncSend(device:str, names:str, ip:str, datas:list, filters:dict):
-    tmp_datas = [
-        lfilter(**filters[name], x=np.array(data).astype(np.float32)).tolist() \
-        for data,name in zip(datas[:-1], names)
-    ] + [datas[-1]]
+def _asyncSend(device:str, names:str, ip:str, datas:list, method:Callable):
+    tmp_datas = datas
     try:
-        requests.put(
+        method(
             f'http://{ip}/data',
             json={
                 'names': names, 
