@@ -22,42 +22,30 @@ app.get('/view', (req, res) => {
 });
 
 app.get('/view_alt', (req, res) => {
+    ind_start = 0;
     res.status(200).sendFile(__dirname + '/view_am.html');
 });
 
 //HTTP API - RECEIVE DATA
 app.post('/data', (req, res) => {
     tmp = req.body;
-    tmp.names.forEach((element, index) => {
-        //TODO -> Change Structure of data from: obj[key:list[values], key:list[values]] to: list[obj[key:value, key:value]]
-        //check whether named value already exists in 'data'
-        if(Object.hasOwn(data, element))
-        {
-            //Concat values if so, max length of MAXLENGTH
-            data[element].data = data[element].data.concat(tmp.data[index]);
-            if(data[element].data.length >= MAXLENGTH)
-            {
-                to_shift = data[element].data.length - MAXLENGTH;
-                data[element].data.shift(to_shift);
-                data[element].shift += MAXLENGTH - to_shift;
-            }
-        }
-        else
-        {
-            //Set values if not
-            data[element] = {
-                data:Array.of(tmp.data[index]).flat(),
-                ind:0,
-                shift:0,
-            }
-        }
+    tmpData = Array(tmp.len).fill({});
+    tmp.names.forEach((name, index) => {
+        for(let i = 0; i < tmp.len; tmpData[i][name] = tmp.data[index][i++]);
     });
+    console.log(tmpData);
+    if(tmpData.length + data.length > 9e6)
+    {
+        data.shift(tmpData.length);
+        shifted = tmpData.length;
+    } 
+    data = data.concat(tmpData);
     res.status(201).send('Successfully inserted data');
 });
 
 //HTTP API - POLLING REQ DATA
 app.get('/data', (req, res) => {
-    if(data && Object.keys(data).length === 0 && Object.getPrototypeOf(data) === Object.prototype)
+    if(!data.length)
     {
         //DATA NOT AVAILABLE
         res.status(503).send('Data not available');
@@ -65,13 +53,9 @@ app.get('/data', (req, res) => {
     else
     {
         //DATA AVAILABLE
-        tmpObj = {};
-        Object.entries(data).forEach(([key, obj]) => {
-            tmpObj[key] = obj.data.slice(obj.ind - obj.shift, obj.data.length - 1);
-            data[key].shift = 0;
-            data[key].ind = data[key].data.length - 1;
-        });
-        res.status(200).json(tmpObj);
+        res.status(200).json(data.slice(ind_start - shifted, data.length - 1));
+        ind_start = data.length;
+        shifted = 0;
     }
 });
 

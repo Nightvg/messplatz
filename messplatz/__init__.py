@@ -181,7 +181,7 @@ class Reader(Serial):
                 kwargs={
                     'device':'microcontroller',
                     'names':list(self.datatype.keys()),
-                    'datas':res+stamplist,
+                    'datas':[*res,stamplist],
                     'method': requests.post
                 }
             ).start()
@@ -322,7 +322,8 @@ def _asyncSend(device:str, names:list[str], datas:list, method:Callable, ip:str 
             json={
                 'names': names, 
                 'device': device,
-                'data': tmp_datas
+                'data': tmp_datas,
+                'len': len(tmp_datas[0])
             },
             headers={
                 'connection': 'close'

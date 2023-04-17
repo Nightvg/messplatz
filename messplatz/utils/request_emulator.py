@@ -9,7 +9,8 @@ def sendOnce(**kwargs):
         json={
             'names': kwargs['names'], 
             'device': kwargs['device'],
-            'data': kwargs['datas']
+            'data': kwargs['datas'],
+            'len': len(kwargs['datas'][0])
         },
         headers={
             'connection': 'close'
@@ -18,23 +19,30 @@ def sendOnce(**kwargs):
         timeout=0.10
     )
 
+def emulate(**kwargs):
+    for i in range(1000):
+        if i < 500:
+            kwargs['datas'] = [[1000*math.sin(i/10)], [datetime.now().timestamp()]]
+        else:
+            kwargs['datas'] = [
+                *(5*[[1000*math.sin(i/10)]]),
+                [datetime.now().timestamp()]
+            ]
+            kwargs['names'] = ['EMG1','EMG2','ECG','BR','EDA','timestamp']
+        sendOnce(**kwargs)
+        sleep(kwargs['dps'])
+
 if __name__ == '__main__':
     kwargs = {
         'device': 'test',
         'names': ['ECG','timestamp'],
         'datas': [],
         'method': requests.post,
-        'ip': '127.0.0.1'
+        'ip': '127.0.0.1',
+        'dps': 1/60
     }
-    dps = 1/60
-    for i in range(1000):
-        if i < 500:
-            kwargs['datas'] = [1000*math.sin(i/10), datetime.now().timestamp()]
-        else:
-            kwargs['datas'] = 2*[1000*math.sin(i/10)] + [datetime.now().timestamp()]
-            kwargs['names'] = ['ECG','EMG1','timestamp']
-        sendOnce(**kwargs)
-        sleep(dps)
+    emulate(kwargs)
+    
 
 
 
