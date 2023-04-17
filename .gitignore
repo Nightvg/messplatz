@@ -19,9 +19,12 @@ __pycache__
 test/__pycache__
 *.pyc
 *.svg
+*.xml
 *.png
 *.bat
 *.prof
 *.log
 stackable.py
 logs/*.log
+*.zip
+NewCodeTobias

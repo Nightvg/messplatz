@@ -1,6 +1,36 @@
 [build-system]
 requires = ["setuptools", "wheel"]
 
+[project]
+name="messplatz"
+version="0.95"
+requires-python=">=3.11"
+dependencies=[
+    "pyserial>=3.5",
+    "numpy>=1.22.3",
+    "pandas>=1.5.2"
+]
+description="
+    Software to read data in specified data format from a measuering unit, decode
+    and send it to a HTTP API as POST request (push method) and save it to file.
+"
+authors=[
+    {name="Tobias Allrich", email="tobias.allrich@enas.fraunhofer.de"}
+]
+maintainers=[
+    {name="Tobias Allrich", email="tobias.allrich@enas.fraunhofer.de"}
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python"
+]
+
+[test]
+requires=[
+    "pytest"
+]
+requires-python=">=3.11"
+
 [tool.pytest.ini_options]
 log_cli = true
 log_cli_level = "INFO"

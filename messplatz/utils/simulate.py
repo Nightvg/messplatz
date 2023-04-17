@@ -14,7 +14,7 @@ a = Manager(
     },
     name='microcontroller',
     sockport=3001,
-    frequency=1666,
+    frequency=2000,
     serial=True
 )
 a.start()

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@amcharts/amcharts5": "^5.3.8",
     "chart.js": "^4.2.1",
     "express": "^4.18.2",
     "jquery": "^3.6.3",

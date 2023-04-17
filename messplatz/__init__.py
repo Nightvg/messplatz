@@ -72,7 +72,7 @@ class Reader(Serial):
                 'BR':np.float32,
                 'EDA':np.float32
             },
-            frequency=1666,
+            frequency=2000,
             **kwargs
         ):
         """
@@ -88,11 +88,12 @@ class Reader(Serial):
             frequency   : frequency of the µC in Hz
         """
         self._connectFlag = False
+        self.logger = logging.getLogger('messplatz.Reader')
         if 'dev' not in kwargs:
             #see microcontroller for baudrate, port could change on differnt devices
             for comport in list_ports.comports():
                 try:
-                    super().__init__(
+                    Serial.__init__(
                         self, 
                         port=comport.device,
                         baudrate=baudrate,
@@ -116,7 +117,6 @@ class Reader(Serial):
         self._ATTEMPTS = 0
         self.events = events
         self.q = q
-        self.logger = logging.getLogger('messplatz.Reader')
         self.interval = 1/dps
         self.datatype = datatype  
         #number of bytes to read
@@ -138,23 +138,13 @@ class Reader(Serial):
                 elems = zip(*elems)
                 res = [
                     np.frombuffer(b''.join(d), dtype).tolist() \
-                    for d,dtype in zip(elems,self.datatype.values())
+                    for d,dtype in zip(elems,self.datatype.values()[:-1])
                 ]
             else:
                 res= [
                     np.frombuffer(d, dtype).tolist() \
-                    for d,dtype in zip(elems[0],self.datatype.values())
+                    for d,dtype in zip(elems[0],self.datatype.values()[:-1])
                 ]
-            Thread(
-                target=_asyncSend,
-                kwargs={
-                    'device':'microcontroller',
-                    'names':list(self.datatype.keys())[:-1],
-                    'ip':'127.0.0.1',
-                    'datas':res,
-                    'method': requests.post
-                }
-            ).start()
             return res
         try:
             stamplist = []            
@@ -162,7 +152,7 @@ class Reader(Serial):
             if len(self._READBUFFER) == 0:
                 return
             if self._timeLast is None:
-                self._timeLast = datetime.now()
+                self._timeLast = datetime.now(tz=None)
             splList = self._READBUFFER.split(b'\r\n')
             vals = [
                 self._LCORR(dFrame) \
@@ -185,7 +175,17 @@ class Reader(Serial):
             self.logger.info(
                 f'sent {len(vals)} rows of data'
             )
-            self.q.put({'values':_decodeAndSend(b''.join(vals)),'timestamp':stamplist})
+            res = _decodeAndSend(b''.join(vals))
+            Thread(
+                target=_asyncSend,
+                kwargs={
+                    'device':'microcontroller',
+                    'names':list(self.datatype.keys()),
+                    'datas':res+stamplist,
+                    'method': requests.post
+                }
+            ).start()
+            self.q.put({'values':res,'timestamp':stamplist})
         except FileNotFoundError as e:
             if self._ATTEMPTS > 5:
                 self.logger.error('Could not reconnect, shuting down')
@@ -244,6 +244,7 @@ class Manager():
         self.dataf = ''
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
         self.datatype = datatype
+        self.datatype['timestamp'] = np.float64
         self.device = name
         self.events = {'endSend':Event(), 'endWork':Event()}
         self.port = kwargs['sockport'] if 'sockport' in kwargs else 3001
@@ -256,7 +257,6 @@ class Manager():
                 'q': self.q
             }
         )
-        self.datatype['timestamp'] = np.float64
         self.BUFFBYTES = [np.dtype(x).itemsize for x in self.datatype.values()]
         self.df = pd.DataFrame(
             np.empty(
@@ -279,12 +279,13 @@ class Manager():
         self._ThreadList += [
             self.Write(**self.__dict__)
         ]     
+        self.reader.run()
         for t in self._ThreadList:
             t.start()
 
     class Write(Thread):
         def __init__(self, **kwargs):
-            super().__init__(target=self._write)
+            Thread.__init__(self, target=self._write)
             self.__dict__.update(
                 {
                     key: value for key, value in kwargs.items() if key[0] != '_'
@@ -304,7 +305,7 @@ class Manager():
                         ).astype(self.datatype)
                         for ind,i in enumerate(values):
                             tmp.loc[ind] = [*i,timestamps[ind]]
-                        self.logger.info(f'received {len(data)} rows of data')
+                        self.logger.info(f'received {len(data["values"])} rows of data')
                         if not init:
                             file.write(tmp.to_csv(index=False))
                             init = True
@@ -313,7 +314,7 @@ class Manager():
             self.events['endWork'].set()
             return True
 
-def _asyncSend(device:str, names:str, ip:str, datas:list, method:Callable):
+def _asyncSend(device:str, names:list[str], datas:list, method:Callable, ip:str = '127.0.0.1'):
     tmp_datas = datas
     try:
         method(
