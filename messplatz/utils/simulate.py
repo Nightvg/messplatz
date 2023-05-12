@@ -1,5 +1,5 @@
 from time import sleep
-from messplatz import Manager
+from messplatz import Manager, init
 import numpy as np
 import sys
 
@@ -8,6 +8,7 @@ def simulate(time: int, **kwargs) -> None:
     Blocking simulation mode. Measurement for time in seconds.
     For keyword arguments, see Manager.
     '''
+    init()
     a = Manager(
         datatype=kwargs['datatype'] if 'datatype' in kwargs else {
             'EMG1':np.float32,

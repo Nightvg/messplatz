@@ -1,10 +1,11 @@
 from copy import deepcopy
 from datetime import datetime, date, timedelta
 from queue import Queue #maybe obsolete
-from threading import Thread, Timer, Event
+from threading import Thread, Timer, Event, Lock
 from typing import Any, Callable
 import logging
-import requests #maybe obsolete
+import logging.config
+import requests
 import os
 
 import pandas as pd
@@ -12,24 +13,36 @@ import numpy as np
 from serial import Serial
 import serial.tools.list_ports as list_ports
 
-coredir = os.path.expanduser('~')
-if not os.path.exists(os.path.join(coredir,'messplatz_data\\')):
-    os.mkdir(os.path.join(coredir,'messplatz_data\\'))
-logpath = os.path.join(coredir,'messplatz_data\\logs\\')
-datapath = os.path.join(coredir,'messplatz_data\\data\\')
-if not os.path.exists(logpath):
-    os.mkdir(logpath)
-    # logfile = open(f'{logpath}{date.today()}.log', 'w')
-    # logfile.close()
-if not os.path.exists(datapath):
-    os.mkdir(datapath)
-logging.basicConfig(
-    filename=f'{logpath}{date.today()}.log',
-    filemode="a",
-    format='%(asctime)s [%(levelname)s] %(message)s (%(name)s:%(lineno)s)',
-    datefmt="%y-%m-%d"
-)
-module_logger = logging.getLogger('main.messplatz')
+def init():
+    global datapath
+    global logpath
+    coredir = os.path.expanduser('~')
+    if not os.path.exists(os.path.join(coredir,'messplatz_data\\')):
+        os.mkdir(os.path.join(coredir,'messplatz_data\\'))
+    logpath = os.path.join(coredir,'messplatz_data\\logs\\')
+    datapath = os.path.join(coredir,'messplatz_data\\data\\')
+    if not os.path.exists(logpath):
+        os.mkdir(logpath)
+    if os.getenv('LOGFILE') is None:
+        os.environ['LOGFILE'] = f'{logpath}{date.today()}.log'
+        os.environ['LOGDEBUG'] = f'{logpath}debug.log'
+    # if not os.path.exists(os.path.join(logpath,f'{date.today()}.log')):
+    #     logfile = open(f'{logpath}{date.today()}.log', 'w')
+    #     #logfile = open(f'{logpath}test.log', 'w')
+    #     logfile.close()
+    lpath = os.path.dirname(os.path.abspath(__file__))
+    if not os.path.exists(datapath):
+        os.mkdir(datapath)
+    # logging.basicConfig(
+    #     filename=f'{logpath}{date.today()}.log',
+    #     filemode="a",
+    #     format='%(asctime)s [%(levelname)s] %(message)s (%(name)s:%(lineno)s)',
+    #     datefmt="%y-%m-%d"
+    # )
+    logging.config.fileConfig(os.path.join(lpath,'log.conf'))
+
+def getLogPath():
+    return logpath
 
 class CtrlFlags():
     CHNG = b'3'
@@ -63,6 +76,7 @@ class Reader(Serial):
             self, 
             events: dict[str: Event],
             q: Queue,
+            lock:Lock,
             baudrate=500000, 
             dps=30, 
             datatype:dict={
@@ -81,6 +95,7 @@ class Reader(Serial):
         Arguments:
             events      :
             q           :
+            lock        :
             baudrate    : datatransferrate in signes per second, usually bits
             dps         : dataframes per second
             datatype    : list of types of inputdata, has to be the same type thoughout
@@ -88,7 +103,8 @@ class Reader(Serial):
             frequency   : frequency of the µC in Hz
         """
         self._connectFlag = False
-        self.logger = logging.getLogger('messplatz.Reader')
+        self.logger = logging.getLogger('Reader')
+        self.lock = lock
         if 'dev' not in kwargs:
             #see microcontroller for baudrate, port could change on differnt devices
             for comport in list_ports.comports():
@@ -104,7 +120,8 @@ class Reader(Serial):
                         self._connectFlag = True
                         break
                 except Exception as e:
-                    self.logger.error(f'{e}')
+                    with self.lock:
+                        self.logger.error(f'{e}')
             #enlarge input buffer
             if self._connectFlag:
                 self.set_buffer_size(rx_size=1024*(2**4), tx_size=1024) 
@@ -138,12 +155,12 @@ class Reader(Serial):
                 elems = zip(*elems)
                 res = [
                     np.frombuffer(b''.join(d), dtype).tolist() \
-                    for d,dtype in zip(elems,self.datatype.values()[:-1])
+                    for d,dtype in zip(elems,list(self.datatype.values())[:-1])
                 ]
             else:
                 res= [
                     np.frombuffer(d, dtype).tolist() \
-                    for d,dtype in zip(elems[0],self.datatype.values()[:-1])
+                    for d,dtype in zip(elems[0],list(self.datatype.values())[:-1])
                 ]
             return res
         try:
@@ -171,10 +188,12 @@ class Reader(Serial):
                 ] 
             else:
                 self._READBUFFER = b''
-            self._ROWS = self._ROWS + len(vals)
-            self.logger.info(
-                f'sent {len(vals)} rows of data'
-            )
+            if self.dev:
+                self._ROWS = self._ROWS + len(vals)
+                with self.lock:
+                    self.logger.info(
+                        f'sent {len(vals)} rows of data'
+                    )
             res = _decodeAndSend(b''.join(vals))
             Thread(
                 target=_asyncSend,
@@ -188,28 +207,35 @@ class Reader(Serial):
             self.q.put({'values':res,'timestamp':stamplist})
         except FileNotFoundError as e:
             if self._ATTEMPTS > 5:
-                self.logger.error('Could not reconnect, shuting down')
+                with self.lock:
+                    self.logger.error('Could not reconnect, shuting down')
                 self.stop()
                 return
             self._ATTEMPTS += 1
-            self.logger.warning(f'{e}')
+            with self.lock:
+                self.logger.warning(f'{e}')
             self.open()    
         except Exception as e:
-            self.logger.error(f'{e}')
+            with self.lock:
+                self.logger.error(f'{e}')
 
     def run(self):
-        self.logger.info('starting connection...')
+        with self.lock:
+            self.logger.info('starting connection...')
         self.timer = RepeatTimer(self.interval, self.loop)
         if not self.dev:
             self.write(CtrlFlags.STRT)
         self.timer.start()
 
     def stop(self):
-        self.logger.info('stopping connection...')
+        with self.lock:
+            self.logger.info('stopping connection...')
         if not self.dev:
             self.write(CtrlFlags.STOP) 
+        else:
+            with self.lock:
+                self.logger.debug(f'Totally send: {self._ROWS}')
         self.events['endSend'].set()
-        self.logger.info(f'Totally send: {self._ROWS}')
         self.events['endWork'].wait(timeout=None)
         if self.timer is not None:
             self.timer.cancel()
@@ -239,7 +265,8 @@ class Manager():
             baudrate    : serial baudrate, default 500000
             dps         : dataframes per second, default 60
         '''
-        self.logger = logging.getLogger('messplatz.PacketManager')
+        self.logger = logging.getLogger('Manager')
+        self.logger_lock = Lock()
         self.dev = 'dev' in kwargs and kwargs['dev']
         self.dataf = ''
         self.ip = kwargs['ip'] if 'ip' in kwargs else 'localhost'
@@ -254,7 +281,8 @@ class Manager():
                 **kwargs,
                 'events': self.events,
                 'datatype': deepcopy(datatype),
-                'q': self.q
+                'q': self.q,
+                'lock': self.logger_lock
             }
         )
         self.BUFFBYTES = [np.dtype(x).itemsize for x in self.datatype.values()]
@@ -291,7 +319,7 @@ class Manager():
                     key: value for key, value in kwargs.items() if key[0] != '_'
                 }
             )
-            self.logger = logging.getLogger('messplatz.Write')
+            self.logger = logging.getLogger('Writer')
         def _write(self) -> bool:
             init = False
             while not (self.q.empty() and self.events['endSend'].is_set()):
@@ -305,7 +333,8 @@ class Manager():
                         ).astype(self.datatype)
                         for ind,i in enumerate(values):
                             tmp.loc[ind] = [*i,timestamps[ind]]
-                        self.logger.info(f'received {len(data["values"])} rows of data')
+                        with self.logger_lock:
+                            self.logger.info(f'received {len(data["values"])} rows of data')
                         if not init:
                             file.write(tmp.to_csv(index=False))
                             init = True
@@ -314,7 +343,7 @@ class Manager():
             self.events['endWork'].set()
             return True
 
-def _asyncSend(device:str, names:list[str], datas:list, method:Callable, ip:str = '127.0.0.1'):
+def _asyncSend(device:str, names:list[str], datas:list, method:Callable, ip:str = '127.0.0.1'):  
     tmp_datas = datas
     try:
         method(

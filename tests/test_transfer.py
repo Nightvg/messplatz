@@ -1,21 +1,23 @@
-from datetime import datetime
-from messplatz import Manager
+from datetime import datetime, date
+from messplatz import Manager, init, getLogPath
 import numpy as np
+import re
 from time import sleep
 import pytest
 import csv
 import logging
 
 @pytest.fixture(autouse=True)
-def no_logs_error(caplog):
+def no_logs_error():
     yield
-    errors = [
-        record for record in caplog.get_records('call') \
-        if record.levelno >= logging.ERROR
-    ]
-    assert not errors
+    errors = re.findall(
+        r'(ERROR)|(WARNING)|(CRITICAL)',
+        open(f'{getLogPath()}{date.today()}.log','r').read()
+    )
+    assert len(errors) == 0
 
 def test_Manager_standard():
+    init()
     TRANGE = 100
     a = Manager(
         datatype={
@@ -39,6 +41,7 @@ def test_Manager_standard():
     assert len(content) == 2*TRANGE + 1
 
 def test_Manager_partlyWrongDataframes():
+    init()
     TRANGE = 100
     a = Manager(
         datatype={
@@ -63,6 +66,7 @@ def test_Manager_partlyWrongDataframes():
     assert len(content) == 2*TRANGE + 1
 
 def test_Manager_realconnection():
+    init()
     TIME = 10
     ACC = 0.15
     a = Manager(
@@ -93,6 +97,7 @@ def test_Manager_realconnection():
 
 
 if __name__ == '__main__':
+    init()
     a = Manager(
         datatype={
             'EMG1':np.float32,

@@ -41,7 +41,7 @@ if __name__ == '__main__':
         'ip': '127.0.0.1',
         'dps': 1/60
     }
-    emulate(kwargs)
+    emulate(**kwargs)
     
 
 
