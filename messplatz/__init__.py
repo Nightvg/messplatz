@@ -138,7 +138,7 @@ class Reader(Serial):
         self.datatype = datatype  
         #number of bytes to read
         self.BUFFBYTES = [np.dtype(x).itemsize for x in self.datatype.values()]
-        sumbuffbytes = sum(self.BUFFBYTES)
+        sumbuffbytes = sum(self.BUFFBYTES) - 8
         #constant value for incorrect read
         #initialize readbuffer as byte type due to byte reading from pyserial
         self._READBUFFER = b''
@@ -149,8 +149,8 @@ class Reader(Serial):
         self._FRMS = int(1/frequency * 1e6)
         self._timeLast = None
     def loop(self, data=b'') -> None:
-        def _decodeAndSend(byteString: bytes):
-            elems = ByteArray(byteString).listMask(self.BUFFBYTES)
+        def _decode(byteString: bytes):
+            elems = ByteArray(byteString).listMask(self.BUFFBYTES[:-1])
             if len(elems) > 1:
                 elems = zip(*elems)
                 res = [
@@ -182,11 +182,15 @@ class Reader(Serial):
                 for x in range(0,len(vals)*self._FRMS,self._FRMS)
             ]
             self._timeLast += timedelta(microseconds=len(vals)*self._FRMS)
+            #### Smart ####
             if len(self._READBUFFER) > len(self.WRONGREAD) + 2:
                 self._READBUFFER = self._READBUFFER[
                     self._READBUFFER.rindex(b'\r\n')+2:
                 ] 
             else:
+                # When the input of this frame is shorter than a whole frame, it is just
+                # the remainder of the previous frame, thus the buffer needs to be cleared
+                # in order to not double an output
                 self._READBUFFER = b''
             if self.dev:
                 self._ROWS = self._ROWS + len(vals)
@@ -194,7 +198,7 @@ class Reader(Serial):
                     self.logger.info(
                         f'sent {len(vals)} rows of data'
                     )
-            res = _decodeAndSend(b''.join(vals))
+            res = _decode(b''.join(vals))
             Thread(
                 target=_asyncSend,
                 kwargs={
@@ -225,7 +229,7 @@ class Reader(Serial):
         self.timer = RepeatTimer(self.interval, self.loop)
         if not self.dev:
             self.write(CtrlFlags.STRT)
-        self.timer.start()
+            self.timer.start()
 
     def stop(self):
         with self.lock:

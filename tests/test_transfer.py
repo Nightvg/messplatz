@@ -96,20 +96,3 @@ def test_Manager_realconnection():
     assert (2000*TIME+1)*(1-ACC) <= len(content) <= (2000*TIME + 1)*(1+ACC)
 
 
-if __name__ == '__main__':
-    init()
-    a = Manager(
-        datatype={
-            'EMG1':np.float32,
-            'EMG2':np.float32,
-            'ECG':np.float32,
-            'BRRRRR':np.float32,
-            'EDA':np.float32
-        },
-        name='microcontroller',
-        sockport=3001,
-        serial=True
-    )
-    a.start()
-    sleep(10)
-    a.close()
