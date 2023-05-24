@@ -9,6 +9,7 @@ dependencies=[
     "pyserial>=3.5",
     "numpy>=1.22.3",
     "pandas>=1.5.2",
+    "requests>=2.28.2"
 ]
 description="""
     Software to read data in specified data format from a measuering unit, decode

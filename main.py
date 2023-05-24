@@ -1,10 +1,11 @@
 from time import sleep
-from messplatz import Manager
+from messplatz import Manager, init
 import numpy as np
 import sys
 
-TIME = int(sys.argv[1]) if len(sys.argv) > 0 else 5
+TIME = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 try:
+    init()
     a = Manager(
         datatype={
             'EMG1':np.float32,

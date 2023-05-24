@@ -7,7 +7,6 @@ out
 build
 .vscode
 *.out
-*.ipynb
 *.puml
 *.egg-info
 *.txt
