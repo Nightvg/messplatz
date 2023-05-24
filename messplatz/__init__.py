@@ -45,7 +45,7 @@ def getLogPath():
     return logpath
 
 class CtrlFlags():
-    CHNG = b'3'
+    FREQ = b'3'
     STRT = b'2'
     STOP = b'1'
     PING = b'0'
@@ -146,8 +146,8 @@ class Reader(Serial):
         #Flags and anonymous methods
         self._LCORR = lambda x : x if len(x) == sumbuffbytes else self.WRONGREAD
         self._ROWS = 0
-        self._FRMS = int(1/frequency * 1e6)
         self._timeLast = None
+        self.setFreq(frequency)
     def loop(self, data=b'') -> None:
         def _decode(byteString: bytes):
             elems = ByteArray(byteString).listMask(self.BUFFBYTES[:-1])
@@ -222,6 +222,14 @@ class Reader(Serial):
         except Exception as e:
             with self.lock:
                 self.logger.error(f'{e}')
+
+    def setFreq(self, frequency: int):
+        self._FRMS = int(1/frequency * 1e6)
+        with self.lock:
+            self.logger.info(f'change Frequency to: {frequency}')
+        if not self.dev:
+            frequency = np.clip(frequency//100,1,20)
+            self.write(CtrlFlags.FREQ + frequency.to_bytes())
 
     def run(self):
         with self.lock:

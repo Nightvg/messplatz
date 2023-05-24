@@ -27,4 +27,7 @@ def simulate(time: int, **kwargs) -> None:
     a.close()
 
 if __name__ == '__main__':
-    simulate(sys.argv[0] if len(sys.argv) > 0 else 5)
+    simulate(
+        int(sys.argv[1]) if len(sys.argv) > 1 else 5, 
+        frequency=int(sys.argv[2]) if len(sys.argv) > 2 else 2000
+    ) 

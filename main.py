@@ -4,6 +4,7 @@ import numpy as np
 import sys
 
 TIME = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+FREQ = int(sys.argv[2]) if len(sys.argv) > 2 else 2000
 try:
     init()
     a = Manager(
@@ -16,7 +17,7 @@ try:
         },
         name='microcontroller',
         sockport=3001,
-        frequency=2000,
+        frequency=FREQ,
         serial=True
     )
     a.start()
